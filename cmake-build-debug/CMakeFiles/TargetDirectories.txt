@@ -1,0 +1,3 @@
+/Users/liliang/IdeaProjects/tubei/jdk/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/Users/liliang/IdeaProjects/tubei/jdk/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/liliang/IdeaProjects/tubei/jdk/cmake-build-debug/CMakeFiles/jdk.dir
