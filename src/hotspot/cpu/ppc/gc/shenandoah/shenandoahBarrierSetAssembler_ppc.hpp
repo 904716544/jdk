@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2018, 2021, Red Hat, Inc. All rights reserved.
- * Copyright (c) 2012, 2021 SAP SE. All rights reserved.
+ * Copyright (c) 2018, 2022, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2012, 2022 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -61,6 +61,7 @@ private:
   void resolve_forward_pointer_not_null(MacroAssembler* masm, Register dst, Register tmp);
 
 public:
+  virtual NMethodPatchingType nmethod_patching_type() { return NMethodPatchingType::conc_data_patch; }
 
   /* ==== C1 stubs ==== */
 #ifdef COMPILER1
@@ -80,11 +81,6 @@ public:
                           Register base, RegisterOrConstant ind_or_offs,
                           Register tmp1, Register tmp2, Register tmp3,
                           MacroAssembler::PreservationLevel preservation_level);
-
-  void iu_barrier(MacroAssembler* masm,
-                        Register val,
-                        Register tmp1, Register tmp2,
-                        MacroAssembler::PreservationLevel preservation_level, DecoratorSet decorators = 0);
 
   void load_reference_barrier(MacroAssembler* masm, DecoratorSet decorators,
                               Register base, RegisterOrConstant ind_or_offs,
@@ -109,7 +105,7 @@ public:
   virtual void load_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
                        Register base, RegisterOrConstant ind_or_offs, Register dst,
                        Register tmp1, Register tmp2,
-                       MacroAssembler::PreservationLevel preservation_level, Label* L_handle_null = NULL);
+                       MacroAssembler::PreservationLevel preservation_level, Label* L_handle_null = nullptr);
 
   virtual void try_resolve_jobject_in_native(MacroAssembler* masm, Register dst, Register jni_env,
                                              Register obj, Register tmp, Label& slowpath);

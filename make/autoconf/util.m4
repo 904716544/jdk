@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2011, 2024, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 
 m4_include([util_paths.m4])
 
-###############################################################################
+################################################################################
 # Create a function/macro that takes a series of named arguments. The call is
 # similar to AC_DEFUN, but the setup of the function looks like this:
 # UTIL_DEFUN_NAMED([MYFUNC], [FOO *BAR], [$@], [
@@ -52,7 +52,7 @@ m4_include([util_paths.m4])
 AC_DEFUN([UTIL_DEFUN_NAMED],
 [
   AC_DEFUN($1, [
-    m4_foreach(arg, m4_split(m4_normalize($2)), [
+    m4_foreach([arg], m4_split(m4_normalize($2)), [
       m4_if(m4_bregexp(arg, [^\*]), -1,
         [
           m4_set_add(legal_named_args, arg)
@@ -64,13 +64,18 @@ AC_DEFUN([UTIL_DEFUN_NAMED],
       )
     ])
 
-    m4_foreach([arg], [$3], [
-      m4_if(m4_bregexp(arg, [: ]), -1, m4_define([arg], m4_bpatsubst(arg, [:], [: ])))
-      m4_define(arg_name, m4_substr(arg, 0, m4_bregexp(arg, [: ])))
+    # Delicate quoting and unquoting sequence to ensure the actual value is passed along unchanged
+    # For details on how this works, see https://git.openjdk.org/jdk/pull/11458#discussion_r1038173051
+    # WARNING: Proceed at the risk of your own sanity, getting this to work has made me completely
+    # incapable of feeling love or any other positive emotion
+    # ~Julian
+    m4_foreach([arg], m4_dquote(m4_dquote_elt($3)), [
+      m4_if(m4_index(arg, [: ]), -1, [m4_define([arg], m4_dquote(m4_bpatsubst(m4_dquote(arg), [:], [: ])))])
+      m4_define(arg_name, m4_substr(arg, 0, m4_index(arg, [: ])))
       m4_set_contains(legal_named_args, arg_name, [],[AC_MSG_ERROR([Internal error: m4_if(arg_name, , arg, arg_name) is not a valid named argument to [$1]. Valid arguments are 'm4_set_contents(defined_args, [ ]) m4_set_contents(legal_named_args, [ ])'.])])
       m4_set_remove(required_named_args, arg_name)
       m4_set_remove(legal_named_args, arg_name)
-      m4_pushdef([ARG_][]arg_name, m4_bpatsubst(m4_substr(arg, m4_incr(m4_incr(m4_bregexp(arg, [: ])))), [^\s*], []))
+      m4_pushdef([ARG_][]arg_name, m4_bpatsubst(m4_bpatsubst(m4_dquote(m4_dquote(arg)), arg_name[: ]), [^\s*]))
       m4_set_add(defined_args, arg_name)
       m4_undefine([arg_name])
     ])
@@ -95,7 +100,7 @@ AC_DEFUN([UTIL_DEFUN_NAMED],
   ])
 ])
 
-###############################################################################
+################################################################################
 # Assert that a programmatic condition holds. If not, exit with an error message.
 # Check that a shell expression gives return code 0
 #
@@ -116,7 +121,7 @@ AC_DEFUN([UTIL_ASSERT_SHELL_TEST],
 ])
 
 
-###############################################################################
+################################################################################
 # Assert that a programmatic condition holds. If not, exit with an error message.
 # Check that two strings are equal.
 #
@@ -132,7 +137,7 @@ AC_DEFUN([UTIL_ASSERT_STRING_EQUALS],
       $3)
 ])
 
-###############################################################################
+################################################################################
 # Assert that a programmatic condition holds. If not, exit with an error message.
 # Check that two strings not are equal.
 #
@@ -148,7 +153,7 @@ AC_DEFUN([UTIL_ASSERT_STRING_NOT_EQUALS],
       $3)
 ])
 
-###############################################################################
+################################################################################
 # Assert that a programmatic condition holds. If not, exit with an error message.
 # Check that the given expression evaluates to the string 'true'
 #
@@ -160,7 +165,7 @@ AC_DEFUN([UTIL_ASSERT_TRUE],
   UTIL_ASSERT_STRING_EQUALS($1, true, $3)
 ])
 
-###############################################################################
+################################################################################
 # Assert that a programmatic condition holds. If not, exit with an error message.
 # Check that the given expression does not evaluate to the string 'true'
 #
@@ -172,7 +177,7 @@ AC_DEFUN([UTIL_ASSERT_NOT_TRUE],
   UTIL_ASSERT_STRING_NOT_EQUALS($1, true, $3)
 ])
 
-###############################################################################
+################################################################################
 # Check if a list of space-separated words are selected only from a list of
 # space-separated legal words. Typical use is to see if a user-specified
 # set of words is selected from a set of legal words.
@@ -194,12 +199,12 @@ AC_DEFUN([UTIL_GET_NON_MATCHING_VALUES],
   if test -z "$legal_values"; then
     $1="$2"
   else
-    result=`$GREP -Fvx "$legal_values" <<< "$values_to_check" | $GREP -v '^$'`
+    result=`$GREP -Fvx -- "$legal_values" <<< "$values_to_check" | $GREP -v '^$'`
     $1=${result//$'\n'/ }
   fi
 ])
 
-###############################################################################
+################################################################################
 # Check if a list of space-separated words contains any word(s) from a list of
 # space-separated illegal words. Typical use is to see if a user-specified
 # set of words contains any from a set of illegal words.
@@ -221,12 +226,12 @@ AC_DEFUN([UTIL_GET_MATCHING_VALUES],
   if test -z "$illegal_values"; then
     $1=""
   else
-    result=`$GREP -Fx "$illegal_values" <<< "$values_to_check" | $GREP -v '^$'`
+    result=`$GREP -Fx -- "$illegal_values" <<< "$values_to_check" | $GREP -v '^$'`
     $1=${result//$'\n'/ }
   fi
 ])
 
-###############################################################################
+################################################################################
 # Converts an ISO-8601 date/time string to a unix epoch timestamp. If no
 # suitable conversion method was found, an empty string is returned.
 #
@@ -254,7 +259,7 @@ AC_DEFUN([UTIL_GET_EPOCH_TIMESTAMP],
   $1=$timestamp
 ])
 
-###############################################################################
+################################################################################
 # Sort a space-separated list, and remove duplicates.
 #
 # Sets the specified variable to the resulting list.
@@ -268,7 +273,7 @@ AC_DEFUN([UTIL_SORT_LIST],
   $1=${result//$'\n'/ }
 ])
 
-###############################################################################
+################################################################################
 # Test if $1 is a valid argument to $3 (often is $JAVA passed as $3)
 # If so, then append $1 to $2 \
 # Also set JVM_ARG_OK to true/false depending on outcome.
@@ -289,7 +294,7 @@ AC_DEFUN([UTIL_ADD_JVM_ARG_IF_OK],
   fi
 ])
 
-###############################################################################
+################################################################################
 # Register a --with argument but mark it as deprecated
 # $1: The name of the with argument to deprecate, not including --with-
 AC_DEFUN([UTIL_DEPRECATED_ARG_WITH],
@@ -299,7 +304,7 @@ AC_DEFUN([UTIL_DEPRECATED_ARG_WITH],
       [AC_MSG_WARN([Option --with-$1 is deprecated and will be ignored.])])
 ])
 
-###############################################################################
+################################################################################
 # Register a --enable argument but mark it as deprecated
 # $1: The name of the with argument to deprecate, not including --enable-
 AC_DEFUN([UTIL_DEPRECATED_ARG_ENABLE],
@@ -309,7 +314,7 @@ AC_DEFUN([UTIL_DEPRECATED_ARG_ENABLE],
       [AC_MSG_WARN([Option --enable-$1 is deprecated and will be ignored.])])
 ])
 
-###############################################################################
+################################################################################
 # Register an --enable-* argument as an alias for another argument.
 # $1: The name of the enable argument for the new alias, not including --enable-
 # $2: The full name of the argument of which to make this an alias, including
@@ -324,7 +329,7 @@ AC_DEFUN([UTIL_ALIASED_ARG_ENABLE],
   ])
 ])
 
-###############################################################################
+################################################################################
 # Creates a command-line option using the --enable-* pattern. Will return a
 # value of 'true' or 'false' in the RESULT variable, depending on whether the
 # option was enabled or not by the user. The option can not be turned on if it
@@ -376,18 +381,18 @@ UTIL_DEFUN_NAMED([UTIL_ARG_ENABLE],
   m4_define(ARG_GIVEN, m4_translit(ARG_NAME, [a-z-], [A-Z_])[_GIVEN])
 
   # If DESC is not specified, set it to a generic description.
-  m4_define([ARG_DESC], m4_if(ARG_DESC, , [Enable the ARG_NAME feature], m4_normalize(ARG_DESC)))
+  m4_define([ARG_DESC], m4_if(m4_quote(ARG_DESC), , [[Enable the ARG_NAME feature]], [m4_normalize(ARG_DESC)]))
 
   # If CHECKING_MSG is not specified, set it to a generic description.
-  m4_define([ARG_CHECKING_MSG], m4_if(ARG_CHECKING_MSG, , [for --enable-ARG_NAME], m4_normalize(ARG_CHECKING_MSG)))
+  m4_define([ARG_CHECKING_MSG], m4_if(m4_quote(ARG_CHECKING_MSG), , [[for --enable-ARG_NAME]], [m4_normalize(ARG_CHECKING_MSG)]))
 
   # If the code blocks are not given, set them to the empty statements to avoid
   # tripping up bash.
-  m4_define([ARG_CHECK_AVAILABLE], m4_if(ARG_CHECK_AVAILABLE, , :, ARG_CHECK_AVAILABLE))
-  m4_define([ARG_IF_GIVEN], m4_if(ARG_IF_GIVEN, , :, ARG_IF_GIVEN))
-  m4_define([ARG_IF_NOT_GIVEN], m4_if(ARG_IF_NOT_GIVEN, , :, ARG_IF_NOT_GIVEN))
-  m4_define([ARG_IF_ENABLED], m4_if(ARG_IF_ENABLED, , :, ARG_IF_ENABLED))
-  m4_define([ARG_IF_DISABLED], m4_if(ARG_IF_DISABLED, , :, ARG_IF_DISABLED))
+  m4_if(ARG_CHECK_AVAILABLE, , [m4_define([ARG_CHECK_AVAILABLE], [:])])
+  m4_if(ARG_IF_GIVEN, , [m4_define([ARG_IF_GIVEN], [:])])
+  m4_if(ARG_IF_NOT_GIVEN, , [m4_define([ARG_IF_NOT_GIVEN], [:])])
+  m4_if(ARG_IF_ENABLED, , [m4_define([ARG_IF_ENABLED], [:])])
+  m4_if(ARG_IF_DISABLED, , [m4_define([ARG_IF_DISABLED], [:])])
 
   ##########################
   # Part 2: Set up autoconf shell code
@@ -466,7 +471,7 @@ UTIL_DEFUN_NAMED([UTIL_ARG_ENABLE],
   fi
 ])
 
-###############################################################################
+################################################################################
 # Helper functions for ARG_WITH, to validate different types of argument
 
 # Dispatcher to call the correct UTIL_CHECK_TYPE_* function depending on the ARG_TYPE
@@ -504,7 +509,7 @@ AC_DEFUN([UTIL_CHECK_TYPE_directory],
     FAILURE="Directory $1 does not exist or is not readable"
   fi
 
-  if test "[x]ARG_CHECK_FOR_FILES" != x; then
+  if test "[x]ARG_CHECK_FOR_FILES" != "x:"; then
     for file in ARG_CHECK_FOR_FILES; do
       found_files=$($ECHO $(ls $1/$file 2> /dev/null))
       if test "x$found_files" = x; then
@@ -570,7 +575,7 @@ AC_DEFUN([UTIL_CHECK_TYPE_features],
   ARG_RESULT=$($ECHO $feature_list)
 ])
 
-###############################################################################
+################################################################################
 # Creates a command-line option using the --with-* pattern. Will return a
 # string in the RESULT variable with the option provided by the user, or the
 # empty string if the --with-* option was not given. The option can not be given
@@ -650,21 +655,21 @@ UTIL_DEFUN_NAMED([UTIL_ARG_WITH],
   m4_define(ARG_GIVEN, m4_translit(ARG_NAME, [a-z-], [A-Z_])[_GIVEN])
 
   # If DESC is not specified, set it to a generic description.
-  m4_define([ARG_DESC], m4_if(ARG_DESC, , [Give a value for the ARG_NAME feature], m4_normalize(ARG_DESC)))
+  m4_define([ARG_DESC], m4_if(m4_quote(ARG_DESC), , [[Give a value for the ARG_NAME feature]], [m4_normalize(ARG_DESC)]))
 
   # If CHECKING_MSG is not specified, set it to a generic description.
-  m4_define([ARG_CHECKING_MSG], m4_if(ARG_CHECKING_MSG, , [for --with-ARG_NAME], m4_normalize(ARG_CHECKING_MSG)))
+  m4_define([ARG_CHECKING_MSG], m4_if(m4_quote(ARG_CHECKING_MSG), , [[for --with-ARG_NAME]], [m4_normalize(ARG_CHECKING_MSG)]))
 
   m4_define([ARG_HAS_AUTO_BLOCK], m4_if(ARG_IF_AUTO, , false, true))
 
   # If the code blocks are not given, set them to the empty statements to avoid
   # tripping up bash.
-  m4_define([ARG_CHECK_AVAILABLE], m4_if(ARG_CHECK_AVAILABLE, , :, ARG_CHECK_AVAILABLE))
-  m4_define([ARG_CHECK_VALUE], m4_if(ARG_CHECK_VALUE, , :, ARG_CHECK_VALUE))
-  m4_define([ARG_CHECK_FOR_FILES], m4_if(ARG_CHECK_FOR_FILES, , :, ARG_CHECK_FOR_FILES))
-  m4_define([ARG_IF_AUTO], m4_if(ARG_IF_AUTO, , :, ARG_IF_AUTO))
-  m4_define([ARG_IF_GIVEN], m4_if(ARG_IF_GIVEN, , :, ARG_IF_GIVEN))
-  m4_define([ARG_IF_NOT_GIVEN], m4_if(ARG_IF_NOT_GIVEN, , :, ARG_IF_NOT_GIVEN))
+  m4_if(ARG_CHECK_AVAILABLE, , [m4_define([ARG_CHECK_AVAILABLE], [:])])
+  m4_if(ARG_CHECK_VALUE, , [m4_define([ARG_CHECK_VALUE], [:])])
+  m4_if(ARG_CHECK_FOR_FILES, , [m4_define([ARG_CHECK_FOR_FILES], [:])])
+  m4_if(ARG_IF_AUTO, , [m4_define([ARG_IF_AUTO], [:])])
+  m4_if(ARG_IF_GIVEN, , [m4_define([ARG_IF_GIVEN], [:])])
+  m4_if(ARG_IF_NOT_GIVEN, , [m4_define([ARG_IF_NOT_GIVEN], [:])])
 
   ##########################
   # Part 2: Set up autoconf shell code
@@ -776,25 +781,25 @@ UTIL_DEFUN_NAMED([UTIL_ARG_WITH],
     else
       AC_MSG_RESULT([$ARG_RESULT, $REASON])
     fi
-  fi
 
-  # Verify value
-  # First use our dispatcher to verify that type requirements are satisfied
-  UTIL_CHECK_TYPE(ARG_TYPE, $ARG_RESULT)
+    # Verify value
+    # First use our dispatcher to verify that type requirements are satisfied
+    UTIL_CHECK_TYPE(ARG_TYPE, $ARG_RESULT)
 
-  if test "x$FAILURE" = x; then
-    # Execute custom verification payload, if present
-    RESULT="$ARG_RESULT"
+    if test "x$FAILURE" = x; then
+      # Execute custom verification payload, if present
+      RESULT="$ARG_RESULT"
 
-    ARG_CHECK_VALUE
+      ARG_CHECK_VALUE
 
-    ARG_RESULT="$RESULT"
-  fi
+      ARG_RESULT="$RESULT"
+    fi
 
-  if test "x$FAILURE" != x; then
-    AC_MSG_NOTICE([Invalid value for [--with-]ARG_NAME: "$ARG_RESULT"])
-    AC_MSG_NOTICE([$FAILURE])
-    AC_MSG_ERROR([Cannot continue])
+    if test "x$FAILURE" != x; then
+      AC_MSG_NOTICE([Invalid value for [--with-]ARG_NAME: "$ARG_RESULT"])
+      AC_MSG_NOTICE([$FAILURE])
+      AC_MSG_ERROR([Cannot continue])
+    fi
   fi
 
   # Execute result payloads, if present
@@ -805,11 +810,20 @@ UTIL_DEFUN_NAMED([UTIL_ARG_WITH],
   fi
 ])
 
-###############################################################################
+################################################################################
 # Helper functions for CHECK_VALUE in ARG_WITH.
 AC_DEFUN([UTIL_CHECK_STRING_NON_EMPTY],
 [
   if test "x$RESULT" = "x"; then
     FAILURE="Value cannot be empty"
+  fi
+])
+
+AC_DEFUN([UTIL_CHECK_STRING_NON_EMPTY_PRINTABLE],
+[
+  if test "x$RESULT" = x; then
+    FAILURE="Value cannot be empty"
+  elif [ ! [[ $RESULT =~ ^[[:print:]]*$ ]] ]; then
+    FAILURE="Value contains non-printing characters: $RESULT"
   fi
 ])

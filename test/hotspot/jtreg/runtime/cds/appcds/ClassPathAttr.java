@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,7 @@
  * @run driver/timeout=240 ClassPathAttr
  */
 
+import jdk.test.lib.Platform;
 import jdk.test.lib.cds.CDSTestUtils;
 import jdk.test.lib.process.OutputAnalyzer;
 import java.io.File;
@@ -55,9 +56,10 @@ public class ClassPathAttr {
         "CpAttr2", "CpAttr3", "CpAttr4", "CpAttr5");
     buildCpAttr("cpattr5_123456789_223456789_323456789_423456789_523456789_623456789", "cpattr5_extra_long.mf", "CpAttr5", "CpAttr5");
 
+    String[] classlist = { "CpAttr1", "CpAttr2", "CpAttr3", "CpAttr4", "CpAttr5"};
+    String jar4 = TestCommon.getTestJar("cpattr4.jar");
     for (int i=1; i<=2; i++) {
       String jar1 = TestCommon.getTestJar("cpattr1.jar");
-      String jar4 = TestCommon.getTestJar("cpattr4.jar");
       if (i == 2) {
         // Test case #2 -- same as #1, except we use cpattr1_long.jar, which has a super-long
         // Class-Path: attribute.
@@ -65,11 +67,7 @@ public class ClassPathAttr {
       }
       String cp = jar1 + File.pathSeparator + jar4;
 
-      TestCommon.testDump(cp, TestCommon.list("CpAttr1",
-                                                          "CpAttr2",
-                                                          "CpAttr3",
-                                                          "CpAttr4",
-                                                          "CpAttr5"));
+      TestCommon.testDump(cp, classlist);
 
       TestCommon.run(
           "-cp", cp,
@@ -85,7 +83,87 @@ public class ClassPathAttr {
             output.shouldMatch("checking shared classpath entry: .*cpattr2.jar");
             output.shouldMatch("checking shared classpath entry: .*cpattr3.jar");
           });
+
+      // Test handling of forward slash ('/') file separator when locating entries
+      // in the classpath entry on Windows.
+      // Skip the following test when CDS dynamic dump is enabled due to some
+      // issue when converting a relative path to real path.
+      if (Platform.isWindows() && !CDSTestUtils.DYNAMIC_DUMP) {
+          // Test with relative path
+          // Find the index to the dir before the jar file.
+          int idx = jar1.lastIndexOf(File.separator);
+          idx = jar1.substring(0, idx - 1).lastIndexOf(File.separator);
+          // Setup jar directory and names.
+          String jarDir = jar1.substring(0, idx);
+          String jar1Name = jar1.substring(idx + 1);
+          String jar4Name = jar4.substring(idx + 1);
+          String newCp = jar1Name.replace("\\", "/") + File.pathSeparator + jar4Name.replace("\\", "/");
+
+          OutputAnalyzer out = TestCommon.testDump(jarDir, newCp, classlist, "-Xlog:class+path=info");
+          if (i == 1) {
+              out.shouldMatch("opened:.*cpattr1.jar"); // first jar on -cp
+          } else {
+              // first jar on -cp with long Class-Path: attribute
+              out.shouldMatch("opened:.*cpattr1_long.jar");
+          }
+          // one of the jar in the Class-Path: attribute of cpattr1.jar
+          out.shouldMatch("opened:.*cpattr2.jar");
+
+          TestCommon.runWithRelativePath(
+              jarDir.replace("\\", "/"),
+              "-Xlog:class+path,class+load",
+              "-cp", newCp,
+              "CpAttr1")
+            .assertNormalExit(output -> {
+                output.shouldMatch("checking shared classpath entry: .*cpattr2.jar");
+                output.shouldMatch("checking shared classpath entry: .*cpattr3.jar");
+              });
+
+          // Go one directory up.
+          int idx2 = jar1.substring(0, idx - 1).lastIndexOf(File.separator);
+          if (idx2 != -1) {
+              // Setup jar directory and names.
+              jarDir = jar1.substring(0, idx2);
+              // Set relative path to jar containing '\' and '/' file separators
+              // e.g. d1\d2/A.jar
+              jar1Name = jar1.substring(idx2 + 1).replace("\\", "/");
+              jar4Name = jar4.substring(idx2 + 1).replace("\\", "/");
+              jar1Name = jar1Name.replaceFirst("/", "\\\\");
+              jar4Name = jar4Name.replaceFirst("/", "\\\\");
+
+              newCp = jar1Name + File.pathSeparator + jar4Name;
+              out = TestCommon.testDump(jarDir, newCp, classlist, "-Xlog:class+path=info");
+              if (i == 1) {
+                  out.shouldMatch("opened:.*cpattr1.jar"); // first jar on -cp
+              } else {
+                  // first jar on -cp with long Class-Path: attribute
+                  out.shouldMatch("opened:.*cpattr1_long.jar");
+              }
+              // one of the jar in the Class-Path: attribute of cpattr1.jar
+              out.shouldMatch("opened:.*cpattr2.jar");
+
+              TestCommon.runWithRelativePath(
+                  jarDir.replace("\\", "/"),
+                  "-Xlog:class+path,class+load",
+                  "-cp", newCp,
+                  "CpAttr1")
+                .assertNormalExit(output -> {
+                    output.shouldMatch("checking shared classpath entry: .*cpattr2.jar");
+                    output.shouldMatch("checking shared classpath entry: .*cpattr3.jar");
+                  });
+          }
+      }
     }
+
+    // test duplicate jars in the "Class-path" attribute in the jar manifest
+    buildCpAttr("cpattr_dup", "cpattr_dup.mf", "CpAttr1", "CpAttr1");
+    String cp = TestCommon.getTestJar("cpattr_dup.jar") + File.pathSeparator + jar4;
+    TestCommon.testDump(cp, classlist);
+
+    TestCommon.run(
+        "-cp", cp,
+        "CpAttr1")
+      .assertNormalExit();
   }
 
   static void testNonExistentJars() throws Exception {

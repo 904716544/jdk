@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -62,9 +62,10 @@ public abstract class AbstractEventStream implements EventStream {
     private final StreamConfiguration streamConfiguration = new StreamConfiguration();
     private final List<Configuration> configurations;
     private final ParserState parserState = new ParserState();
-    private volatile Thread thread;
+    private volatile boolean closeOnComplete = true;
     private Dispatcher dispatcher;
     private boolean daemon = false;
+
 
     AbstractEventStream(@SuppressWarnings("removal") AccessControlContext acc, List<Configuration> configurations) throws IOException {
         this.accessControllerContext = Objects.requireNonNull(acc);
@@ -106,6 +107,13 @@ public abstract class AbstractEventStream implements EventStream {
     // Only used if -Xlog:jfr+event* is specified
     public final void setDaemon(boolean daemon) {
         this.daemon = daemon;
+    }
+
+    // When set to false, it becomes the callers responsibility
+    // to invoke close() and clean up resources. By default,
+    // the resource is cleaned up when the process() call has finished.
+    public final void setCloseOnComplete(boolean closeOnComplete) {
+        this.closeOnComplete = closeOnComplete;
     }
 
     @Override
@@ -197,7 +205,7 @@ public abstract class AbstractEventStream implements EventStream {
 
     protected abstract void process() throws IOException;
 
-    protected abstract boolean isRecording();
+    protected abstract boolean isRecordingStream();
 
     protected final void closeParser() {
         parserState.close();
@@ -214,14 +222,13 @@ public abstract class AbstractEventStream implements EventStream {
     public final void startAsync(long startNanos) {
         startInternal(startNanos);
         Runnable r = () -> run(accessControllerContext);
-        thread = SecuritySupport.createThreadWitNoPermissions(nextThreadName(), r);
+        Thread thread = SecuritySupport.createThreadWitNoPermissions(nextThreadName(), r);
         SecuritySupport.setDaemonThread(thread, daemon);
         thread.start();
     }
 
     public final void start(long startNanos) {
         startInternal(startNanos);
-        thread = Thread.currentThread();
         run(accessControllerContext);
     }
 
@@ -242,7 +249,7 @@ public abstract class AbstractEventStream implements EventStream {
             if (streamConfiguration.started) {
                 throw new IllegalStateException("Event stream can only be started once");
             }
-            if (isRecording() && streamConfiguration.startTime == null) {
+            if (isRecordingStream() && streamConfiguration.startTime == null) {
                 streamConfiguration.setStartNanos(startNanos);
             }
             streamConfiguration.setStarted(true);
@@ -260,7 +267,9 @@ public abstract class AbstractEventStream implements EventStream {
         } finally {
             Logger.log(LogTag.JFR_SYSTEM_STREAMING, LogLevel.DEBUG, "Execution of stream ended.");
             try {
-                close();
+                if (closeOnComplete) {
+                    close();
+                }
             } finally {
                 terminated.countDown();
             }

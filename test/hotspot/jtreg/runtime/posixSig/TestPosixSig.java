@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,8 +23,8 @@
 
 /*
  * @test TestPosixSig.java
- * @bug 8285792
- * @summary fix issues with signal handler modification checks
+ * @bug 8292559
+ * @summary test that -XX:+CheckJNICalss displays changed signal handlers.
  * @requires os.family != "windows"
  * @library /test/lib
  * @run driver TestPosixSig
@@ -35,13 +35,6 @@ import jdk.test.lib.process.OutputAnalyzer;
 
 public class TestPosixSig {
 
-    // Check that a substring occurs exactly once.
-    public static boolean occursOnce(String source, String substring) {
-        int index = source.indexOf(substring);
-        if (index == -1) return false;
-        return (source.indexOf(substring, index + 1) == -1);
-    }
-
     private static native void changeSigActionFor(int val);
 
     public static void main(String[] args) throws Throwable {
@@ -50,19 +43,28 @@ public class TestPosixSig {
 
         if (args.length == 0) {
 
-            // Create a new java process for the TestPsig Java/JNI test
-            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
+            // Create a new java process for the TestPsig Java/JNI test.
+            // We run the VM in interpreted mode, because the JIT might mark
+            // a Java method as not-entrant, which means turning the first instruction
+            // into an illegal one. Calling such a method after establishing
+            // the new SIGILL signal handler with TestPosixSig.changeSigActionFor(4)
+            // below, but before the JNI checker noted and reacted on this signal handler
+            // modification, the JVM may crash or hang in an endless loop, where the
+            // illegal instruction will be continously executed, raising SIGILL, and
+            // the signal handler will return to the illegal instruction again...
+            ProcessBuilder pb = ProcessTools.createLimitedTestJavaProcessBuilder(
                 "-XX:+CheckJNICalls",
+                "-Xint",
                 "-Djava.library.path=" + libpath + ":.",
                 "TestPosixSig", "dummy");
 
-            // Start the process and check the output
+            // Start the process and check the output.
             OutputAnalyzer output = new OutputAnalyzer(pb.start());
             String outputString = output.getOutput();
-            if (!occursOnce(outputString, "SIGFPE: sig_handler in ") ||
-                !occursOnce(outputString, "SIGILL: sig_handler in ")) {
+            if (!outputString.contains("Warning: SIGILL handler modified!") ||
+                !outputString.contains("Warning: SIGFPE handler modified!")) {
                 System.out.println("output: " + outputString);
-                throw new RuntimeException("Test failed, bad output.");
+                throw new RuntimeException("Test failed, missing signal Warning");
             }
             output.shouldHaveExitValue(0);
 

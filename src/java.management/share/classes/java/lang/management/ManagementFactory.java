@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,6 +24,7 @@
  */
 
 package java.lang.management;
+
 import java.io.FilePermission;
 import java.io.IOException;
 import javax.management.DynamicMBean;
@@ -94,7 +95,6 @@ import sun.management.spi.PlatformMBeanProvider.PlatformComponent;
  * <p>
  * An application can access a platform MXBean in the following ways:
  * <h3>1. Direct access to an MXBean interface</h3>
- * <blockquote>
  * <ul>
  *     <li>Get an MXBean instance by calling the
  *         {@link #getPlatformMXBean(Class) getPlatformMXBean} or
@@ -129,7 +129,6 @@ import sun.management.spi.PlatformMBeanProvider.PlatformComponent;
  *         for details.
  *        </li>
  * </ul>
- * </blockquote>
  *
  * <p>
  * The {@link #getPlatformManagementInterfaces getPlatformManagementInterfaces}
@@ -926,7 +925,7 @@ public class ManagementFactory {
             // get all providers
             @SuppressWarnings("removal")
             List<PlatformMBeanProvider> providers = AccessController.doPrivileged(
-                new PrivilegedAction<List<PlatformMBeanProvider>>() {
+                new PrivilegedAction<>() {
                     @Override
                     public List<PlatformMBeanProvider> run() {
                         List<PlatformMBeanProvider> all = new ArrayList<>();
@@ -1019,7 +1018,7 @@ public class ManagementFactory {
         loadNativeLib();
     }
 
-    @SuppressWarnings("removal")
+    @SuppressWarnings({"removal", "restricted"})
     private static void loadNativeLib() {
         AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
             System.loadLibrary("management");

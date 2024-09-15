@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@
 #include "memory/referenceType.hpp"
 #include "oops/annotations.hpp"
 #include "oops/constantPool.hpp"
+#include "oops/fieldInfo.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/typeArrayOop.hpp"
 #include "utilities/accessFlags.hpp"
@@ -47,7 +48,6 @@ class GrowableArray;
 class InstanceKlass;
 class RecordComponent;
 class Symbol;
-class TempNewSymbol;
 class FieldLayoutBuilder;
 
 // Utility to collect and compact oop maps during layout
@@ -86,7 +86,6 @@ class ClassFileParser {
   friend class FieldLayout;
 
   class ClassAnnotationCollector;
-  class FieldAllocationCount;
   class FieldAnnotationCollector;
 
  public:
@@ -116,13 +115,15 @@ class ClassFileParser {
   const bool _is_hidden;
   const bool _can_access_vm_annotations;
   int _orig_cp_size;
+  unsigned int _static_oop_count;
 
   // Metadata created before the instance klass is created.  Must be deallocated
   // if not transferred to the InstanceKlass upon successful class loading
-  // in which case these pointers have been set to NULL.
+  // in which case these pointers have been set to null.
   const InstanceKlass* _super_klass;
   ConstantPool* _cp;
-  Array<u2>* _fields;
+  Array<u1>* _fieldinfo_stream;
+  Array<FieldStatus>* _fields_status;
   Array<Method*>* _methods;
   Array<u2>* _inner_classes;
   Array<u2>* _nest_members;
@@ -140,8 +141,8 @@ class ClassFileParser {
   InstanceKlass* _klass_to_deallocate; // an InstanceKlass* to be destroyed
 
   ClassAnnotationCollector* _parsed_annotations;
-  FieldAllocationCount* _fac;
   FieldLayoutInfo* _field_info;
+  GrowableArray<FieldInfo>* _temp_field_info;
   const intArray* _method_ordering;
   GrowableArray<Method*>* _all_mirandas;
 
@@ -188,13 +189,13 @@ class ClassFileParser {
 
   bool _has_nonstatic_concrete_methods;
   bool _declares_nonstatic_concrete_methods;
+  bool _has_localvariable_table;
   bool _has_final_method;
   bool _has_contended_fields;
 
   // precomputed flags
   bool _has_finalizer;
   bool _has_empty_finalizer;
-  bool _has_vanilla_constructor;
   int _max_bootstrap_specifier_index;  // detects BSS values
 
   void parse_stream(const ClassFileStream* const stream, TRAPS);
@@ -258,7 +259,6 @@ class ClassFileParser {
 
   void parse_fields(const ClassFileStream* const cfs,
                     bool is_interface,
-                    FieldAllocationCount* const fac,
                     ConstantPool* cp,
                     const int cp_size,
                     u2* const java_fields_count_ptr,
@@ -268,12 +268,12 @@ class ClassFileParser {
   Method* parse_method(const ClassFileStream* const cfs,
                        bool is_interface,
                        const ConstantPool* cp,
-                       AccessFlags* const promoted_flags,
+                       bool* const has_localvariable_table,
                        TRAPS);
 
   void parse_methods(const ClassFileStream* const cfs,
                      bool is_interface,
-                     AccessFlags* const promoted_flags,
+                     bool* const has_localvariable_table,
                      bool* const has_final_method,
                      bool* const declares_nonstatic_concrete_methods,
                      TRAPS);
@@ -327,7 +327,7 @@ class ClassFileParser {
                                                     const u1* const permitted_subclasses_attribute_start,
                                                     TRAPS);
 
-  u2 parse_classfile_record_attribute(const ClassFileStream* const cfs,
+  u4 parse_classfile_record_attribute(const ClassFileStream* const cfs,
                                       const ConstantPool* cp,
                                       const u1* const record_attribute_start,
                                       TRAPS);
@@ -345,10 +345,8 @@ class ClassFileParser {
                                                    TRAPS);
 
   // Annotations handling
-  AnnotationArray* assemble_annotations(const u1* const runtime_visible_annotations,
-                                        int runtime_visible_annotations_length,
-                                        const u1* const runtime_invisible_annotations,
-                                        int runtime_invisible_annotations_length,
+  AnnotationArray* allocate_annotations(const u1* const anno,
+                                        int anno_length,
                                         TRAPS);
 
   void set_precomputed_flags(InstanceKlass* k);
@@ -512,16 +510,10 @@ class ClassFileParser {
   void copy_method_annotations(ConstMethod* cm,
                                const u1* runtime_visible_annotations,
                                int runtime_visible_annotations_length,
-                               const u1* runtime_invisible_annotations,
-                               int runtime_invisible_annotations_length,
                                const u1* runtime_visible_parameter_annotations,
                                int runtime_visible_parameter_annotations_length,
-                               const u1* runtime_invisible_parameter_annotations,
-                               int runtime_invisible_parameter_annotations_length,
                                const u1* runtime_visible_type_annotations,
                                int runtime_visible_type_annotations_length,
-                               const u1* runtime_invisible_type_annotations,
-                               int runtime_invisible_type_annotations_length,
                                const u1* annotation_default,
                                int annotation_default_length,
                                TRAPS);
@@ -555,6 +547,7 @@ class ClassFileParser {
 
   bool is_hidden() const { return _is_hidden; }
   bool is_interface() const { return _access_flags.is_interface(); }
+  bool is_abstract() const { return _access_flags.is_abstract(); }
 
   ClassLoaderData* loader_data() const { return _loader_data; }
   const Symbol* class_name() const { return _class_name; }

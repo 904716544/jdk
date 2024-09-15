@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -112,7 +112,7 @@ public class Type1Font extends FileFont {
         /* These abbreviation rules are taken from Appendix 1 of Adobe Technical Note #5088 */
         /* NB: this list is not complete - we did not include abbreviations which contain
                several capital letters because current expansion algorithm do not support this.
-               (namely we have omited MM aka "Multiple Master", OsF aka "Oldstyle figures",
+               (namely we have omitted MM aka "Multiple Master", OsF aka "Oldstyle figures",
                            OS aka "Oldstyle", SC aka "Small caps" and  DS aka "Display" */
         String[] nm = {"Black", "Bold", "Book", "Demi", "Heavy", "Light",
                        "Meduium", "Nord", "Poster", "Regular", "Super", "Thin",
@@ -187,7 +187,9 @@ public class Type1Font extends FileFont {
     private synchronized ByteBuffer getBuffer() throws FontFormatException {
         ByteBuffer bbuf = bufferRef.get();
         if (bbuf == null) {
-          //System.out.println("open T1 " + platName);
+            if (FontUtilities.isLogging()) {
+                FontUtilities.logInfo("open Type 1 font: " + platName);
+            }
             try {
                 @SuppressWarnings("removal")
                 RandomAccessFile raf = (RandomAccessFile)
@@ -229,6 +231,9 @@ public class Type1Font extends FileFont {
     void readFile(ByteBuffer buffer) {
         RandomAccessFile raf = null;
         FileChannel fc;
+        if (FontUtilities.isLogging()) {
+            FontUtilities.logInfo("open Type 1 font: " + platName);
+        }
         try {
             raf = (RandomAccessFile)
                 java.security.AccessController.doPrivileged(

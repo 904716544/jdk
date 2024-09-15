@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -93,8 +93,8 @@ static jrawMonitorID callbackBlock;
  *   not blocking might mean that a return would continue execution of
  *   some java thread in the middle of VM_DEATH, this seems troubled.
  *
- *   WARNING: No not 'return' or 'goto' out of the BEGIN_CALLBACK/END_CALLBACK
- *            block, this will mess up the count.
+ *   WARNING: Do not 'return' or 'goto' out of the BEGIN_CALLBACK/END_CALLBACK
+ *            block. This will mess up the active_callbacks count.
  */
 
 #define BEGIN_CALLBACK()                                                \
@@ -132,6 +132,10 @@ static jrawMonitorID callbackBlock;
                 debugMonitorEnter(callbackBlock);                       \
                 debugMonitorExit(callbackBlock);                        \
             } else {                                                    \
+                /* Notify anyone waiting for callbacks to exit */       \
+                if (active_callbacks == 0) {                            \
+                    debugMonitorNotifyAll(callbackLock);                \
+                }                                                       \
                 debugMonitorExit(callbackLock);                         \
             }                                                           \
         }                                                               \
@@ -334,9 +338,14 @@ deferEventReport(JNIEnv *env, jthread thread,
                 jlocation end;
                 error = methodLocation(method, &start, &end);
                 if (error == JVMTI_ERROR_NONE) {
-                    deferring = isBreakpointSet(clazz, method, start) ||
-                                threadControl_getInstructionStepMode(thread)
-                                    == JVMTI_ENABLE;
+                    if (isBreakpointSet(clazz, method, start)) {
+                        deferring = JNI_TRUE;
+                    } else {
+                        StepRequest* step = threadControl_getStepRequest(thread);
+                        if (step->pending && step->depth == JDWP_STEP_DEPTH(INTO)) {
+                            deferring = JNI_TRUE;
+                        }
+                    }
                     if (!deferring) {
                         threadControl_saveCLEInfo(env, thread, ei,
                                                   clazz, method, start);
@@ -478,7 +487,7 @@ eventHandler_synthesizeUnloadEvent(char *signature, JNIEnv *env)
 
     debugMonitorEnter(handlerLock);
 
-    node = getHandlerChain(EI_GC_FINISH)->first;
+    node = getHandlerChain(EI_CLASS_UNLOAD)->first;
     while (node != NULL) {
         /* save next so handlers can remove themselves */
         HandlerNode *next = NEXT(node);
@@ -540,11 +549,6 @@ filterAndHandleEvent(JNIEnv *env, EventInfo *evinfo, EventIndex ei,
     {
         HandlerNode *node;
         char        *classname;
-
-        /* We must keep track of all classes prepared to know what's unloaded */
-        if (evinfo->ei == EI_CLASS_PREPARE) {
-            classTrack_addPreparedClass(env, evinfo->clazz);
-        }
 
         node = getHandlerChain(ei)->first;
         classname = getClassname(evinfo->clazz);
@@ -1327,6 +1331,44 @@ cbVMDeath(jvmtiEnv *jvmti_env, JNIEnv *env)
 }
 
 /**
+ * Event callback for JVMTI_EVENT_DATA_DUMP_REQUEST
+ *
+ * This callback is made when a JVMTI data dump is requested. The common way of doing
+ * this is with "jcmd <pid> JVMTI.data_dump".
+ *
+ * Debug agent data dumps are experimental and only intended to be used by debug agent
+ * developers. Data dumps are disabled by default.
+ *
+ * This callback is enabled by launching the debug agent with datadump=y. The easiest
+ * way to enabled data dumps with debugger tests or when using jdb is to use the
+ * _JAVA_JDWP_OPTIONS export. The following works well when running tests:
+ *
+ *  make test TEST=<test> \
+ *    JTREG='JAVA_OPTIONS=-XX:+StartAttachListener;OPTIONS=-e:_JAVA_JDWP_OPTIONS=datadump=y'
+ *
+ * Data dumps may fail to happen due to the debug agent suspending all threads.
+ * This causes the Signal Dispatcher and Attach Listener threads to be suspended,
+ * which can cause issues with jcmd attaching. Running with -XX:+StartAttachListener can
+ * help, but in general it is best not to try a datadump when all threads are suspended.
+ *
+ * Data dumps are also risky when the debug agent is handling events or commands from
+ * the debugger, due to dumping data that is not lock protected. This can cause a
+ * crash.
+ *
+ * Data dumps are meant to aid with post mortem debugging (debugging after a
+ * problem has been detected), not for ongoing periodic data gathering.
+ */
+static void JNICALL
+cbDataDump(jvmtiEnv *jvmti_env)
+{
+    tty_message("Debug Agent Data Dump");
+    tty_message("=== START DUMP ===");
+    threadControl_dumpAllThreads();
+    eventHandler_dumpAllHandlers(JNI_TRUE);
+    tty_message("=== END DUMP ===");
+}
+
+/**
  * Delete this handler (do not delete permanent handlers):
  * Deinsert handler from active list,
  * make it inactive, and free it's memory
@@ -1504,18 +1546,34 @@ eventHandler_initialize(jbyte sessionID)
     if (error != JVMTI_ERROR_NONE) {
         EXIT_ERROR(error,"Can't enable thread end events");
     }
-    error = threadControl_setEventMode(JVMTI_ENABLE,
-                                       EI_CLASS_PREPARE, NULL);
-    if (error != JVMTI_ERROR_NONE) {
-        EXIT_ERROR(error,"Can't enable class prepare events");
-    }
-    error = threadControl_setEventMode(JVMTI_ENABLE,
-                                       EI_GC_FINISH, NULL);
+
+    /*
+     * GARBAGE_COLLECTION_FINISH is special since it is not tied to any handlers or an EI,
+     * so it cannot be setup using threadControl_setEventMode(). Use JVMTI API directly.
+     */
+    error = JVMTI_FUNC_PTR(gdata->jvmti,SetEventNotificationMode)
+            (gdata->jvmti, JVMTI_ENABLE, JVMTI_EVENT_GARBAGE_COLLECTION_FINISH, NULL);
     if (error != JVMTI_ERROR_NONE) {
         EXIT_ERROR(error,"Can't enable garbage collection finish events");
     }
-    /* Only enable vthread events if vthread support is enabled. */
-    if (gdata->vthreadsSupported) {
+
+    /*
+     * DATA_DUMP_REQUEST is special since it is not tied to any handlers or an EI,
+     * so it cannot be setup using threadControl_setEventMode(). Use JVMTI API directly.
+     */
+    if (gdata->jvmti_data_dump) {
+        error = JVMTI_FUNC_PTR(gdata->jvmti,SetEventNotificationMode)
+                (gdata->jvmti, JVMTI_ENABLE, JVMTI_EVENT_DATA_DUMP_REQUEST, NULL);
+        if (error != JVMTI_ERROR_NONE) {
+            EXIT_ERROR(error,"Can't enable data dump request events");
+        }
+    }
+
+    /*
+     * Only enable vthread START and END events if we want to remember
+     * vthreads when no debugger is connected.
+     */
+    if (gdata->vthreadsSupported && gdata->rememberVThreadsWhenDisconnected) {
         error = threadControl_setEventMode(JVMTI_ENABLE,
                                            EI_VIRTUAL_THREAD_START, NULL);
         if (error != JVMTI_ERROR_NONE) {
@@ -1573,6 +1631,8 @@ eventHandler_initialize(jbyte sessionID)
     gdata->callbacks.VirtualThreadStart         = &cbVThreadStart;
     /* Event callback for JVMTI_EVENT_VIRTUAL_THREAD_END */
     gdata->callbacks.VirtualThreadEnd           = &cbVThreadEnd;
+    /* Event callback for JVMTI_EVENT_DATA_DUMP_REQUEST */
+    gdata->callbacks.DataDumpRequest = &cbDataDump;
 
     error = JVMTI_FUNC_PTR(gdata->jvmti,SetEventCallbacks)
                 (gdata->jvmti, &(gdata->callbacks), sizeof(gdata->callbacks));
@@ -1588,6 +1648,42 @@ eventHandler_initialize(jbyte sessionID)
 }
 
 void
+eventHandler_onConnect() {
+    debugMonitorEnter(handlerLock);
+
+    /*
+     * Enable vthread START and END events if they are not already always enabled.
+     * They are always enabled if we are remembering vthreads when no debugger is
+     * connected. Otherwise they are only enabled when connected because they can
+     * be very noisy and hurt performance a lot.
+     */
+    if (gdata->vthreadsSupported && !gdata->rememberVThreadsWhenDisconnected) {
+        jvmtiError error;
+        error = threadControl_setEventMode(JVMTI_ENABLE,
+                                           EI_VIRTUAL_THREAD_START, NULL);
+        if (error != JVMTI_ERROR_NONE) {
+            EXIT_ERROR(error,"Can't enable vthread start events");
+        }
+        error = threadControl_setEventMode(JVMTI_ENABLE,
+                                           EI_VIRTUAL_THREAD_END, NULL);
+        if (error != JVMTI_ERROR_NONE) {
+            EXIT_ERROR(error,"Can't enable vthread end events");
+        }
+    }
+
+    debugMonitorExit(handlerLock);
+}
+
+static jvmtiError
+adjust_jvmti_error(jvmtiError error) {
+    // Allow WRONG_PHASE if vm is exiting.
+    if (error == JVMTI_ERROR_WRONG_PHASE && gdata->vmDead) {
+        error = JVMTI_ERROR_NONE;
+    }
+    return error;
+}
+
+void
 eventHandler_reset(jbyte sessionID)
 {
     int i;
@@ -1600,6 +1696,26 @@ eventHandler_reset(jbyte sessionID)
      * the invoke completions can sneak through.
      */
     threadControl_detachInvokes();
+
+    /* Disable vthread START and END events unless we are remembering vthreads
+     * when no debugger is connected. We do this because these events can
+     * be very noisy and hurt performance a lot. Note the VM might be exiting,
+     * and we might get the VM_DEATH event while executing here, so don't
+     * complain about JVMTI_ERROR_WRONG_PHASE if we've already seen VM_DEATH event.
+     */
+    if (gdata->vthreadsSupported && !gdata->rememberVThreadsWhenDisconnected) {
+        jvmtiError error;
+        error = threadControl_setEventMode(JVMTI_DISABLE,
+                                           EI_VIRTUAL_THREAD_START, NULL);
+        if (adjust_jvmti_error(error) != JVMTI_ERROR_NONE) {
+            EXIT_ERROR(error,"Can't disable vthread start events");
+        }
+        error = threadControl_setEventMode(JVMTI_DISABLE,
+                                           EI_VIRTUAL_THREAD_END, NULL);
+        if (adjust_jvmti_error(error) != JVMTI_ERROR_NONE) {
+            EXIT_ERROR(error,"Can't disable vthread end events");
+        }
+    }
 
     /* Reset the event helper thread, purging all queued and
      * in-process commands.
@@ -1618,6 +1734,23 @@ eventHandler_reset(jbyte sessionID)
 }
 
 void
+eventHandler_waitForActiveCallbacks()
+{
+    /*
+     * Wait for active callbacks to complete. It is ok if more callbacks come in
+     * after this point. This is being done so threadControl_reset() can safely
+     * remove all vthreads without worry that they might be referenced in an active
+     * callback. The only callbacks enabled at this point are the permanent ones,
+     * and they never involve vthreads.
+     */
+    debugMonitorEnter(callbackLock);
+    while (active_callbacks > 0) {
+        debugMonitorWait(callbackLock);
+    }
+    debugMonitorExit(callbackLock);
+}
+
+void
 eventHandler_lock(void)
 {
     debugMonitorEnter(handlerLock);
@@ -1627,6 +1760,18 @@ void
 eventHandler_unlock(void)
 {
     debugMonitorExit(handlerLock);
+}
+
+void
+callback_lock(void)
+{
+    debugMonitorEnter(callbackLock);
+}
+
+void
+callback_unlock(void)
+{
+    debugMonitorExit(callbackLock);
 }
 
 /***** handler creation *****/
@@ -1759,9 +1904,7 @@ eventHandler_installExternal(HandlerNode *node)
                           JNI_TRUE);
 }
 
-/***** debugging *****/
-
-#ifdef DEBUG
+/***** APIs for debugging the debug agent *****/
 
 void
 eventHandler_dumpAllHandlers(jboolean dumpPermanent)
@@ -1800,5 +1943,3 @@ eventHandler_dumpHandler(HandlerNode *node)
     tty_message("Handler for %s(%d)\n", eventIndex2EventName(node->ei), node->ei);
     eventFilter_dumpHandlerFilters(node);
 }
-
-#endif /* DEBUG */

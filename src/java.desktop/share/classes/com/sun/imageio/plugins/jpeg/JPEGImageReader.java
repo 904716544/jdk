@@ -90,7 +90,7 @@ public class JPEGImageReader extends ImageReader {
         initStatic();
     }
 
-    @SuppressWarnings("removal")
+    @SuppressWarnings({"removal", "restricted"})
     private static void initStatic() {
         java.security.AccessController.doPrivileged(
             new java.security.PrivilegedAction<Void>() {
@@ -1824,7 +1824,7 @@ public class JPEGImageReader extends ImageReader {
         Thread currThread = Thread.currentThread();
         if (theThread == null || theThread != currThread) {
             throw new IllegalStateException("Attempt to clear thread lock " +
-                                            " form wrong thread." +
+                                            " from wrong thread." +
                                             " Locked thread: " + theThread +
                                             "; current thread: " + currThread);
         }

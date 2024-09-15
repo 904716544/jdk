@@ -25,6 +25,7 @@
 
 package jdk.internal.access;
 
+import jdk.internal.access.foreign.MappedMemoryUtilsProxy;
 import jdk.internal.access.foreign.UnmapperProxy;
 import jdk.internal.misc.VM.BufferPool;
 
@@ -86,32 +87,31 @@ public interface JavaNioAccess {
     MemorySegment bufferSegment(Buffer buffer);
 
     /**
-     * Used by I/O operations to make a buffer's session non-closeable
-     * (for the duration of the I/O operation) by acquiring the session.
-     * Null is returned if the buffer has no scope, or acquiring is not
-     * required to guarantee safety.
+     * Used by operations to make a buffer's session non-closeable
+     * (for the duration of the operation) by acquiring the session.
+     * {@snippet lang = java:
+     * acquireSession(buffer);
+     * try {
+     *     performOperation(buffer);
+     * } finally {
+     *     releaseSession(buffer);
+     * }
+     *}
+     *
+     * @see #releaseSession(Buffer)
      */
-    Runnable acquireSession(Buffer buffer, boolean async);
+    void acquireSession(Buffer buffer);
 
-    /**
-     * Used by {@code jdk.internal.foreign.MappedMemorySegmentImpl} and byte buffer var handle views.
-     */
-    void force(FileDescriptor fd, long address, boolean isSync, long offset, long size);
+    void releaseSession(Buffer buffer);
 
-    /**
-     * Used by {@code jdk.internal.foreign.MappedMemorySegmentImpl} and byte buffer var handle views.
-     */
-    void load(long address, boolean isSync, long size);
+    boolean isThreadConfined(Buffer buffer);
+
+    boolean hasSession(Buffer buffer);
 
     /**
      * Used by {@code jdk.internal.foreign.MappedMemorySegmentImpl}.
      */
-    void unload(long address, boolean isSync, long size);
-
-    /**
-     * Used by {@code jdk.internal.foreign.MappedMemorySegmentImpl} and byte buffer var handle views.
-     */
-    boolean isLoaded(long address, boolean isSync, long size);
+    MappedMemoryUtilsProxy mappedMemoryUtils();
 
     /**
      * Used by {@code jdk.internal.foreign.NativeMemorySegmentImpl}.

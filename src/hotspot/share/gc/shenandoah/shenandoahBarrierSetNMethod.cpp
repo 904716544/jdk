@@ -36,13 +36,19 @@
 #include "runtime/threadWXSetters.inline.hpp"
 
 bool ShenandoahBarrierSetNMethod::nmethod_entry_barrier(nmethod* nm) {
+  if (!is_armed(nm)) {
+    // Some other thread got here first and healed the oops
+    // and disarmed the nmethod. No need to continue.
+    return true;
+  }
+
   ShenandoahReentrantLock* lock = ShenandoahNMethod::lock_for_nmethod(nm);
-  assert(lock != NULL, "Must be");
+  assert(lock != nullptr, "Must be");
   ShenandoahReentrantLocker locker(lock);
 
   if (!is_armed(nm)) {
-    // Some other thread got here first and healed the oops
-    // and disarmed the nmethod.
+    // Some other thread managed to complete while we were
+    // waiting for lock. No need to continue.
     return true;
   }
 
@@ -63,8 +69,8 @@ bool ShenandoahBarrierSetNMethod::nmethod_entry_barrier(nmethod* nm) {
   // Heal oops
   ShenandoahNMethod::heal_nmethod(nm);
 
-  // CodeCache sweeper support
-  nm->mark_as_maybe_on_continuation();
+  // CodeCache unloading support
+  nm->mark_as_maybe_on_stack();
 
   // Disarm
   ShenandoahNMethod::disarm_nmethod(nm);

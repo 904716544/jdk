@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,10 +48,6 @@
 static jboolean GetJVMPath(const char *jrepath, const char *jvmtype,
                            char *jvmpath, jint jvmpathsize);
 static jboolean GetJREPath(char *path, jint pathsize);
-
-#ifdef USE_REGISTRY_LOOKUP
-jboolean GetPublicJREHome(char *buf, jint bufsize);
-#endif
 
 /* We supports warmup for UI stack that is performed in parallel
  * to VM initialization.
@@ -300,6 +296,8 @@ GetJREPath(char *path, jint pathsize)
     char javadll[MAXPATHLEN];
     struct stat s;
 
+    JLI_TraceLauncher("Attempt to get JRE path from launcher executable path\n");
+
     if (GetApplicationHome(path, pathsize)) {
         /* Is JRE co-located with the application? */
         JLI_Snprintf(javadll, sizeof(javadll), "%s\\bin\\" JAVA_DLL, path);
@@ -307,19 +305,9 @@ GetJREPath(char *path, jint pathsize)
             JLI_TraceLauncher("JRE path is %s\n", path);
             return JNI_TRUE;
         }
-        /* ensure storage for path + \jre + NULL */
-        if ((JLI_StrLen(path) + 4 + 1) > (size_t) pathsize) {
-            JLI_TraceLauncher("Insufficient space to store JRE path\n");
-            return JNI_FALSE;
-        }
-        /* Does this app ship a private JRE in <apphome>\jre directory? */
-        JLI_Snprintf(javadll, sizeof (javadll), "%s\\jre\\bin\\" JAVA_DLL, path);
-        if (stat(javadll, &s) == 0) {
-            JLI_StrCat(path, "\\jre");
-            JLI_TraceLauncher("JRE path is %s\n", path);
-            return JNI_TRUE;
-        }
     }
+
+    JLI_TraceLauncher("Attempt to get JRE path from shared lib of the image\n");
 
     /* Try getting path to JRE from path to JLI.DLL */
     if (GetApplicationHomeFromDll(path, pathsize)) {
@@ -329,14 +317,6 @@ GetJREPath(char *path, jint pathsize)
             return JNI_TRUE;
         }
     }
-
-#ifdef USE_REGISTRY_LOOKUP
-    /* Lookup public JRE using Windows registry. */
-    if (GetPublicJREHome(path, pathsize)) {
-        JLI_TraceLauncher("JRE path is %s\n", path);
-        return JNI_TRUE;
-    }
-#endif
 
     JLI_ReportErrorMessage(JRE_ERROR8 JAVA_DLL);
     return JNI_FALSE;
@@ -473,38 +453,6 @@ jlong CurrentTimeMicros()
     QueryPerformanceCounter(&count);
 
     return (jlong)(count.QuadPart * 1000 * 1000 / counterFrequency.QuadPart);
-}
-
-/*
- * windows snprintf does not guarantee a null terminator in the buffer,
- * if the computed size is equal to or greater than the buffer size,
- * as well as error conditions. This function guarantees a null terminator
- * under all these conditions. An unreasonable buffer or size will return
- * an error value. Under all other conditions this function will return the
- * size of the bytes actually written minus the null terminator, similar
- * to ansi snprintf api. Thus when calling this function the caller must
- * ensure storage for the null terminator.
- */
-int
-JLI_Snprintf(char* buffer, size_t size, const char* format, ...) {
-    int rc;
-    va_list vl;
-    if (size == 0 || buffer == NULL)
-        return -1;
-    buffer[0] = '\0';
-    va_start(vl, format);
-    rc = vsnprintf(buffer, size, format, vl);
-    va_end(vl);
-    /* force a null terminator, if something is amiss */
-    if (rc < 0) {
-        /* apply ansi semantics */
-        buffer[size - 1] = '\0';
-        return (int)size;
-    } else if (rc == size) {
-        /* force a null terminator */
-        buffer[size - 1] = '\0';
-    }
-    return rc;
 }
 
 static errno_t convert_to_unicode(const char* path, const wchar_t* prefix, wchar_t** wpath) {
@@ -846,7 +794,7 @@ jclass FindBootStrapClass(JNIEnv *env, const char *classname)
 }
 
 void
-InitLauncher(boolean javaw)
+InitLauncher(jboolean javaw)
 {
     INITCOMMONCONTROLSEX icx;
 

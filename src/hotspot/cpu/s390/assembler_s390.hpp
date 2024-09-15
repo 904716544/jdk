@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2016, 2022, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2016, 2022 SAP SE. All rights reserved.
+ * Copyright (c) 2016, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2024 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -107,7 +107,7 @@ class RelAddr {
 
   static bool is_in_range_of_RelAddr(address target, address pc, bool shortForm) {
     // Guard against illegal branch targets, e.g. -1. Occurrences in
-    // CompiledStaticCall and ad-file. Do not assert (it's a test
+    // CompiledDirectCall and ad-file. Do not assert (it's a test
     // function!). Just return false in case of illegal operands.
     if ((((uint64_t)target) & 0x0001L) != 0) return false;
     if ((((uint64_t)pc)     & 0x0001L) != 0) return false;
@@ -137,10 +137,11 @@ class RelAddr {
     assert(((uint64_t)target & 0x0001L) == 0, "target of a relative address must be aligned");
     assert(((uint64_t)pc     & 0x0001L) == 0, "origin of a relative address must be aligned");
 
-    if ((target == NULL) || (target == pc)) {
+    if ((target == nullptr) || (target == pc)) {
       return 0;  // Yet unknown branch destination.
     } else {
-      guarantee(is_in_range_of_RelAddr(target, pc, shortForm), "target not within reach");
+      guarantee(is_in_range_of_RelAddr(target, pc, shortForm),
+                "target not within reach at " INTPTR_FORMAT ", distance = " INTX_FORMAT, p2i(pc), (target - pc) );
       return (int)((target - pc)>>1);
     }
   }
@@ -188,11 +189,6 @@ class Address {
     _base(noreg),
     _index(noreg),
     _disp(0) {}
-
-  Address(Register base, Register index, intptr_t disp = 0) :
-    _base(base),
-    _index(index),
-    _disp(disp) {}
 
   Address(Register base, intptr_t disp = 0) :
     _base(base),
@@ -295,7 +291,7 @@ class AddressLiteral {
 
  protected:
   // creation
-  AddressLiteral() : _address(NULL), _rspec(NULL) {}
+  AddressLiteral() : _address(nullptr), _rspec() {}
 
  public:
   AddressLiteral(address addr, RelocationHolder const& rspec)
@@ -354,12 +350,8 @@ class AddressLiteral {
 
   intptr_t value() const { return (intptr_t) _address; }
 
-  const relocInfo::relocType rtype() const { return _rspec.type(); }
+  relocInfo::relocType rtype()       const { return _rspec.type(); }
   const RelocationHolder&    rspec() const { return _rspec; }
-
-  RelocationHolder rspec(int offset) const {
-    return offset == 0 ? _rspec : _rspec.plus(offset);
-  }
 };
 
 // Convenience classes
@@ -843,6 +835,10 @@ class Assembler : public AbstractAssembler {
 #define CY_ZOPC     (unsigned long)(227L << 40 | 89L)
 #define CGF_ZOPC    (unsigned long)(227L << 40 | 48L)
 #define CG_ZOPC     (unsigned long)(227L << 40 | 32L)
+// MI, signed
+#define CHHSI_ZOPC  (unsigned long)(0xe5L << 40 | 0x54L << 32)
+#define CHSI_ZOPC   (unsigned long)(0xe5L << 40 | 0x5cL << 32)
+#define CGHSI_ZOPC  (unsigned long)(0xe5L << 40 | 0x58L << 32)
 // RR, unsigned
 #define CLR_ZOPC    (unsigned  int)(21 << 8)
 #define CLGFR_ZOPC  (unsigned  int)(185 << 24 | 49 << 16)
@@ -855,6 +851,10 @@ class Assembler : public AbstractAssembler {
 #define CLY_ZOPC    (unsigned long)(227L << 40 | 85L)
 #define CLGF_ZOPC   (unsigned long)(227L << 40 | 49L)
 #define CLG_ZOPC    (unsigned long)(227L << 40 | 33L)
+// MI, unsigned
+#define CLHHSI_ZOPC (unsigned long)(0xe5L << 40 | 0x55L << 32)
+#define CLFHSI_ZOPC (unsigned long)(0xe5L << 40 | 0x5dL << 32)
+#define CLGHSI_ZOPC (unsigned long)(0xe5L << 40 | 0x59L << 32)
 // RI, unsigned
 #define TMHH_ZOPC   (unsigned  int)(167 << 24 | 2 << 16)
 #define TMHL_ZOPC   (unsigned  int)(167 << 24 | 3 << 16)
@@ -986,6 +986,9 @@ class Assembler : public AbstractAssembler {
 #define BCR_ZOPC    (unsigned  int)(7 << 8)
 #define BALR_ZOPC   (unsigned  int)(5 << 8)
 #define BASR_ZOPC   (unsigned  int)(13 << 8)
+#define BCT_ZOPC    (unsigned  int)(70 << 24)
+#define BCTR_ZOPC   (unsigned  int)(6 << 8)
+#define BCTG_ZOPC   (unsigned  int)(227L << 40 | 70)
 #define BCTGR_ZOPC  (unsigned long)(0xb946 << 16)
 // Absolute
 #define BC_ZOPC     (unsigned  int)(71 << 24)
@@ -1060,6 +1063,7 @@ class Assembler : public AbstractAssembler {
 #define MVI_ZOPC    (unsigned  int)(0x92  << 24)
 #define MVIY_ZOPC   (unsigned long)(0xebL << 40 | 0x52L)
 #define MVC_ZOPC    (unsigned long)(0xd2L << 40)
+#define MVCIN_ZOPC  (unsigned long)(0xe8L << 40)
 #define MVCL_ZOPC   (unsigned  int)(0x0e  <<  8)
 #define MVCLE_ZOPC  (unsigned  int)(0xa8  << 24)
 
@@ -1606,6 +1610,9 @@ class Assembler : public AbstractAssembler {
   static int inv_simm32(long x)    { return (inv_s_field(x, 31,  0)); }                         // 6-byte instructions only
   static int inv_uimm12(long x)    { return (inv_u_field(x, 11,  0)); }                         // 4-byte instructions only
 
+  // NOTE: PLEASE DON'T USE IT NAKED UNTIL WE DROP SUPPORT FOR MACHINES OLDER THAN Z15!!!!
+  inline void z_popcnt(Register r1, Register r2, int64_t m3);   // population count
+
  private:
 
   // Encode u_field from long value.
@@ -1708,21 +1715,21 @@ class Assembler : public AbstractAssembler {
 
   // unsigned immediate, in low bits, nbits long
   static long uimm(long x, int nbits) {
-    assert(Immediate::is_uimm(x, nbits), "unsigned constant out of range");
+    assert(Immediate::is_uimm(x, nbits), "unsigned immediate " INTPTR_FORMAT " out of range (%d bits)", x, nbits);
     return x & fmask(nbits - 1, 0);
   }
 
   // Cast '1' to long to avoid sign extension if nbits = 32.
   // signed immediate, in low bits, nbits long
   static long simm(long x, int nbits) {
-    assert(Immediate::is_simm(x, nbits), "value out of range");
+    assert(Immediate::is_simm(x, nbits), "signed immediate " INTPTR_FORMAT " out of range (%d bits)", x, nbits);
     return x & fmask(nbits - 1, 0);
   }
 
   static long imm(int64_t x, int nbits) {
     // Assert that x can be represented with nbits bits ignoring the sign bits,
     // i.e. the more higher bits should all be 0 or 1.
-    assert((x >> nbits) == 0 || (x >> nbits) == -1, "value out of range");
+    assert((x >> nbits) == 0 || (x >> nbits) == -1, "signed immediate " INTPTR_FORMAT " out of range (%d bits)", x, nbits);
     return x & fmask(nbits-1, 0);
   }
 
@@ -1734,7 +1741,7 @@ class Assembler : public AbstractAssembler {
   // contents of the DH field to the left of the contents of
   // the DL field.
   static long simm20(int64_t ui20) {
-    assert(Immediate::is_simm(ui20, 20), "value out of range");
+    assert(Immediate::is_simm(ui20, 20), "signed displacement (disp20) " INTPTR_FORMAT " out of range", ui20);
     return ( ((ui20        & 0xfffL) << (48-32)) |  // DL
             (((ui20 >> 12) &  0xffL) << (48-40)));  // DH
   }
@@ -1847,6 +1854,10 @@ class Assembler : public AbstractAssembler {
    //inline void z_cgf(Register r1,int64_t d2, Register x2, Register b2);// compare (r1, *(d2_uimm12+x2+b2)) ; int64 <--> int32
   inline void z_cg(  Register r1, const Address &a);                     // compare (r1, *(a))               ; int64
   inline void z_cg(  Register r1, int64_t d2, Register x2, Register b2); // compare (r1, *(d2_imm20+x2+b2))  ; int64
+   // compare memory - immediate
+  inline void z_chhsi(int64_t d1, Register b1, int64_t i2);              // compare (*d1(b1), i2_imm16)      ; int16
+  inline void z_chsi( int64_t d1, Register b1, int64_t i2);              // compare (*d1(b1), i2_imm16)      ; int32
+  inline void z_cghsi(int64_t d1, Register b1, int64_t i2);              // compare (*d1(b1), i2_imm16)      ; int64
 
    // compare logical instructions
    // compare register
@@ -1862,6 +1873,10 @@ class Assembler : public AbstractAssembler {
   inline void z_cly(  Register r1, const Address& a);                    // compare (r1, *(a))               ; uint32
   inline void z_clg(  Register r1, const Address &a);                    // compare (r1, *(a)                ; uint64
   inline void z_clg(  Register r1, int64_t d2, Register x2, Register b2);// compare (r1, *(d2_imm20+x2+b2)   ; uint64
+   // compare memory - immediate
+  inline void z_clhhsi(int64_t d1, Register b1, int64_t i2);             // compare (*d1(b1), i2_imm16)      ; uint16
+  inline void z_clfhsi(int64_t d1, Register b1, int64_t i2);             // compare (*d1(b1), i2_imm16)      ; uint32
+  inline void z_clghsi(int64_t d1, Register b1, int64_t i2);             // compare (*d1(b1), i2_imm16)      ; uint64
 
   // test under mask
   inline void z_tmll(Register r1, int64_t i2);           // test under mask, see docu
@@ -1878,7 +1893,14 @@ class Assembler : public AbstractAssembler {
   //inline void z_brcl(branch_condition i1, int64_t i2);                        // branch  i1 ? pc = pc + i2_imm32
   inline void z_brcl(branch_condition i1, address a);                           // branch  i1 ? pc = a
   inline void z_brcl(branch_condition i1, Label& L);                            // branch  i1 ? pc = Label
-  inline void z_bctgr(Register r1, Register r2);         // branch on count r1 -= 1; (r1!=0) ? pc = r2  ; r1 is int64
+
+  // branch on count Instructions
+  inline void z_bct(  Register r1, int64_t d2, Register x2, Register b2); // branch on count r1 -= 1; (r1!=0) ? pc = (d2_uimm12+x2+b2) ; r1 is int32
+  inline void z_bct(  Register r1, const Address &a);                     // branch on count r1 -= 1; (r1!=0) ? pc = *(a); r1 is int32
+  inline void z_bctr( Register r1, Register r2);                          // branch on count r1 -= 1; (r1!=0) ? pc = r2  ; r1 is int32
+  inline void z_bctgr(Register r1, Register r2);                          // branch on count r1 -= 1; (r1!=0) ? pc = r2  ; r1 is int64
+  inline void z_bctg( Register r1, const Address &a);                     // branch on count r1 -= 1; (r1!=0) ? pc = *(a); r1 is int64
+  inline void z_bctg( Register r1, int64_t d2, Register x2, Register b2); // branch on count r1 -= 1; (r1!=0) ? pc = (d2_imm20+x2+b2)  ; r1 is int64
 
   // branch unconditional / always
   inline void z_br(Register r2);                         // branch to r2, nop if r2 == Z_R0
@@ -2435,6 +2457,7 @@ class Assembler : public AbstractAssembler {
 
   inline void z_mvc(const Address& d, const Address& s, int64_t l);               // move l bytes
   inline void z_mvc(int64_t d1, int64_t l, Register b1, int64_t d2, Register b2); // move l+1 bytes
+  inline void z_mvcin(int64_t d1, int64_t l, Register b1, int64_t d2, Register b2); // move l+1 bytes
   inline void z_mvcle(Register r1, Register r3, int64_t d2, Register b2=Z_R0);    // move region of memory
 
   inline void z_stfle(int64_t d2, Register b2);                            // store facility list extended
@@ -3051,6 +3074,10 @@ class Assembler : public AbstractAssembler {
   inline void z_braz(Label& L);
   inline void z_brnp(Label& L);
 
+  // Branch on count;
+  inline void z_bct( Register r1, int64_t d2, Register b2);
+  inline void z_bctg(Register r1, int64_t d2, Register b2);
+
   inline void z_btrue( Label& L);
   inline void z_bfalse(Label& L);
 
@@ -3082,7 +3109,6 @@ class Assembler : public AbstractAssembler {
 
   // Ppopulation count intrinsics.
   inline void z_flogr(Register r1, Register r2);    // find leftmost one
-  inline void z_popcnt(Register r1, Register r2);   // population count
   inline void z_ahhhr(Register r1, Register r2, Register r3);   // ADD halfword high high
   inline void z_ahhlr(Register r1, Register r2, Register r3);   // ADD halfword high low
 
@@ -3120,6 +3146,9 @@ class Assembler : public AbstractAssembler {
   }
   static bool is_z_algr(long x) {
     return (ALGR_ZOPC == (x & RRE_MASK));
+  }
+  static bool is_z_cfi(long x) {
+    return (CFI_ZOPC == (x & RIL_MASK));
   }
   static bool is_z_lb(long x) {
     return (LB_ZOPC == (x & LB_MASK));

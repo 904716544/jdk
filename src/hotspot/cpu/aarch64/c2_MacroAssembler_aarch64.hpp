@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,9 +31,16 @@
   // Return true if the phase output is in the scratch emit size mode.
   virtual bool in_scratch_emit_size() override;
 
+  void neon_reduce_logical_helper(int opc, bool sf, Register Rd, Register Rn, Register Rm,
+                                  enum shift_kind kind = Assembler::LSL, unsigned shift = 0);
+
  public:
-  void emit_entry_barrier_stub(C2EntryBarrierStub* stub);
-  static int entry_barrier_stub_size();
+  // Code used by cmpFastLock and cmpFastUnlock mach instructions in .ad file.
+  void fast_lock(Register object, Register box, Register tmp, Register tmp2, Register tmp3);
+  void fast_unlock(Register object, Register box, Register tmp, Register tmp2);
+  // Code used by cmpFastLockLightweight and cmpFastUnlockLightweight mach instructions in .ad file.
+  void fast_lock_lightweight(Register object, Register box, Register t1, Register t2, Register t3);
+  void fast_unlock_lightweight(Register object, Register box, Register t1, Register t2, Register t3);
 
   void string_compare(Register str1, Register str2,
                       Register cnt1, Register cnt2, Register result,
@@ -77,15 +84,25 @@
 
   // SIMD&FP comparison
   void neon_compare(FloatRegister dst, BasicType bt, FloatRegister src1,
-                    FloatRegister src2, int cond, bool isQ);
+                    FloatRegister src2, Condition cond, bool isQ);
+
+  void neon_compare_zero(FloatRegister dst, BasicType bt, FloatRegister src,
+                         Condition cond, bool isQ);
 
   void sve_compare(PRegister pd, BasicType bt, PRegister pg,
-                   FloatRegister zn, FloatRegister zm, int cond);
+                   FloatRegister zn, FloatRegister zm, Condition cond);
 
   void sve_vmask_lasttrue(Register dst, BasicType bt, PRegister src, PRegister ptmp);
 
+  // Vector cast
+  void neon_vector_extend(FloatRegister dst, BasicType dst_bt, unsigned dst_vlen_in_bytes,
+                          FloatRegister src, BasicType src_bt, bool is_unsigned = false);
+
+  void neon_vector_narrow(FloatRegister dst, BasicType dst_bt,
+                          FloatRegister src, BasicType src_bt, unsigned src_vlen_in_bytes);
+
   void sve_vector_extend(FloatRegister dst, SIMD_RegVariant dst_size,
-                         FloatRegister src, SIMD_RegVariant src_size);
+                         FloatRegister src, SIMD_RegVariant src_size, bool is_unsigned = false);
 
   void sve_vector_narrow(FloatRegister dst, SIMD_RegVariant dst_size,
                          FloatRegister src, SIMD_RegVariant src_size, FloatRegister tmp);
@@ -93,8 +110,29 @@
   void sve_vmaskcast_extend(PRegister dst, PRegister src,
                             uint dst_element_length_in_bytes, uint src_element_lenght_in_bytes);
 
-  void sve_vmaskcast_narrow(PRegister dst, PRegister src,
+  void sve_vmaskcast_narrow(PRegister dst, PRegister src, PRegister ptmp,
                             uint dst_element_length_in_bytes, uint src_element_lenght_in_bytes);
+
+  // Vector reduction
+  void neon_reduce_add_integral(Register dst, BasicType bt,
+                                Register isrc, FloatRegister vsrc,
+                                unsigned vector_length_in_bytes, FloatRegister vtmp);
+
+  void neon_reduce_mul_integral(Register dst, BasicType bt,
+                                Register isrc, FloatRegister vsrc,
+                                unsigned vector_length_in_bytes,
+                                FloatRegister vtmp1, FloatRegister vtmp2);
+
+  void neon_reduce_mul_fp(FloatRegister dst, BasicType bt,
+                          FloatRegister fsrc, FloatRegister vsrc,
+                          unsigned vector_length_in_bytes, FloatRegister vtmp);
+
+  void neon_reduce_logical(int opc, Register dst, BasicType bt, Register isrc,
+                           FloatRegister vsrc, unsigned vector_length_in_bytes);
+
+  void neon_reduce_minmax_integral(int opc, Register dst, BasicType bt,
+                                   Register isrc, FloatRegister vsrc,
+                                   unsigned vector_length_in_bytes, FloatRegister vtmp);
 
   void sve_reduce_integral(int opc, Register dst, BasicType bt, Register src1,
                            FloatRegister src2, PRegister pg, FloatRegister tmp);
@@ -107,15 +145,15 @@
 
   // Extract a scalar element from an sve vector at position 'idx'.
   // The input elements in src are expected to be of integral type.
-  void sve_extract_integral(Register dst, SIMD_RegVariant size, FloatRegister src, int idx,
-                            bool is_signed, FloatRegister vtmp);
+  void sve_extract_integral(Register dst, BasicType bt, FloatRegister src,
+                            int idx, FloatRegister vtmp);
 
   // java.lang.Math::round intrinsics
   void vector_round_neon(FloatRegister dst, FloatRegister src, FloatRegister tmp1,
                          FloatRegister tmp2, FloatRegister tmp3,
                          SIMD_Arrangement T);
   void vector_round_sve(FloatRegister dst, FloatRegister src, FloatRegister tmp1,
-                        FloatRegister tmp2, PRegister ptmp,
+                        FloatRegister tmp2, PRegister pgtmp,
                         SIMD_RegVariant T);
 
   // Pack active elements of src, under the control of mask, into the
@@ -133,5 +171,12 @@
   void neon_reverse_bits(FloatRegister dst, FloatRegister src, BasicType bt, bool isQ);
 
   void neon_reverse_bytes(FloatRegister dst, FloatRegister src, BasicType bt, bool isQ);
+
+  // java.lang.Math::signum intrinsics
+  void vector_signum_neon(FloatRegister dst, FloatRegister src, FloatRegister zero,
+                          FloatRegister one, SIMD_Arrangement T);
+
+  void vector_signum_sve(FloatRegister dst, FloatRegister src, FloatRegister zero,
+                         FloatRegister one, FloatRegister vtmp, PRegister pgtmp, SIMD_RegVariant T);
 
 #endif // CPU_AARCH64_C2_MACROASSEMBLER_AARCH64_HPP

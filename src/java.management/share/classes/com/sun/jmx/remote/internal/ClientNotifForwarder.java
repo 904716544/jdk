@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -167,8 +167,7 @@ public abstract class ClientNotifForwarder {
                                         ObjectName name,
                                         NotificationListener listener,
                                         NotificationFilter filter,
-                                        Object handback,
-                                        Subject delegationSubject)
+                                        Object handback)
             throws IOException, InstanceNotFoundException {
 
         if (logger.traceOn()) {
@@ -181,9 +180,7 @@ public abstract class ClientNotifForwarder {
                                             name,
                                             listener,
                                             filter,
-                                            handback,
-                                            delegationSubject));
-
+                                            handback));
 
         init(false);
     }
@@ -193,9 +190,8 @@ public abstract class ClientNotifForwarder {
                    NotificationListener listener)
             throws ListenerNotFoundException, IOException {
 
-        List<Integer> ids = new ArrayList<Integer>();
-        List<ClientListenerInfo> values =
-                new ArrayList<ClientListenerInfo>(infoList.values());
+        List<Integer> ids = new ArrayList<>();
+        List<ClientListenerInfo> values = new ArrayList<>(infoList.values());
         for (int i=values.size()-1; i>=0; i--) {
             ClientListenerInfo li = values.get(i);
 
@@ -219,8 +215,7 @@ public abstract class ClientNotifForwarder {
 
         Integer id = null;
 
-        List<ClientListenerInfo> values =
-                new ArrayList<ClientListenerInfo>(infoList.values());
+        List<ClientListenerInfo> values = new ArrayList<>(infoList.values());
         for (int i=values.size()-1; i>=0; i--) {
             ClientListenerInfo li = values.get(i);
             if (li.sameAs(name, listener, filter, handback)) {
@@ -280,10 +275,9 @@ public abstract class ClientNotifForwarder {
                          "Remove all listeners registered at "+name);
         }
 
-        List<Integer> ids = new ArrayList<Integer>();
+        List<Integer> ids = new ArrayList<>();
 
-        List<ClientListenerInfo> values =
-                new ArrayList<ClientListenerInfo>(infoList.values());
+        List<ClientListenerInfo> values = new ArrayList<>(infoList.values());
         for (int i=values.size()-1; i>=0; i--) {
             ClientListenerInfo li = values.get(i);
             if (li.sameAs(name)) {
@@ -435,7 +429,7 @@ public abstract class ClientNotifForwarder {
                 throw new SecurityException("AccessControlContext must not be null");
             }
             return AccessController.doPrivileged(
-                new PrivilegedAction<ClassLoader>() {
+                new PrivilegedAction<>() {
                     public ClassLoader run() {
                         try {
                             // get context class loader - may throw
@@ -509,7 +503,7 @@ public abstract class ClientNotifForwarder {
 
                     clientSequenceNumber = nr.getNextSequenceNumber();
 
-                    listeners = new HashMap<Integer, ClientListenerInfo>();
+                    listeners = new HashMap<>();
 
                     for (int i = 0 ; i < len ; i++) {
                         final TargetedNotification tn = notifs[i];
@@ -909,8 +903,7 @@ public abstract class ClientNotifForwarder {
     private final ClassLoader defaultClassLoader;
     private Executor executor;
 
-    private final Map<Integer, ClientListenerInfo> infoList =
-            new HashMap<Integer, ClientListenerInfo>();
+    private final Map<Integer, ClientListenerInfo> infoList = new HashMap<>();
 
     // notif stuff
     private long clientSequenceNumber = -1;

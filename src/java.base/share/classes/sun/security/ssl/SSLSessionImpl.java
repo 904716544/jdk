@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,6 @@ import java.util.Arrays;
 import java.util.Queue;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -132,7 +131,11 @@ final class SSLSessionImpl extends ExtendedSSLSession {
     private final List<SNIServerName>    requestedServerNames;
 
     // Counter used to create unique nonces in NewSessionTicket
-    private BigInteger ticketNonceCounter = BigInteger.ONE;
+    private byte ticketNonceCounter = 1;
+
+    // This boolean is true when a new set of NewSessionTickets are needed after
+    // the initial ones sent after the handshake.
+    boolean updateNST = false;
 
     // The endpoint identification algorithm used to check certificates
     // in this session.
@@ -154,7 +157,7 @@ final class SSLSessionImpl extends ExtendedSSLSession {
         this.port = -1;
         this.localSupportedSignAlgs = Collections.emptySet();
         this.serverNameIndication = null;
-        this.requestedServerNames = Collections.<SNIServerName>emptyList();
+        this.requestedServerNames = Collections.emptyList();
         this.useExtendedMasterSecret = false;
         this.creationTime = System.currentTimeMillis();
         this.identificationProtocol = null;
@@ -404,7 +407,7 @@ final class SSLSessionImpl extends ExtendedSSLSession {
         // List of SNIServerName
         int len = Short.toUnsignedInt(buf.getShort());
         if (len == 0) {
-            this.requestedServerNames = Collections.<SNIServerName>emptyList();
+            this.requestedServerNames = Collections.emptyList();
         } else {
             requestedServerNames = new ArrayList<>();
             while (len > 0) {
@@ -440,7 +443,7 @@ final class SSLSessionImpl extends ExtendedSSLSession {
         // Get Peer host & port
         i = Byte.toUnsignedInt(buf.get());
         if (i == 0) {
-            this.host = new String();
+            this.host = "";
         } else {
             b = new byte[i];
             buf.get(b, 0, i);
@@ -492,7 +495,7 @@ final class SSLSessionImpl extends ExtendedSSLSession {
                 // Length of pre-shared key algorithm  (one byte)
                 i = buf.get();
                 b = new byte[i];
-                buf.get(b, 0 , i);
+                buf.get(b, 0, i);
                 String alg = new String(b);
                 // Get length of encoding
                 i = Short.toUnsignedInt(buf.getShort());
@@ -501,8 +504,13 @@ final class SSLSessionImpl extends ExtendedSSLSession {
                 buf.get(b);
                 this.preSharedKey = new SecretKeySpec(b, alg);
                 // Get identity len
-                this.pskIdentity = new byte[buf.get()];
-                buf.get(pskIdentity);
+                i = buf.get();
+                if (i > 0) {
+                    this.pskIdentity = new byte[buf.get()];
+                    buf.get(pskIdentity);
+                } else {
+                    this.pskIdentity = null;
+                }
                 break;
             default:
                 throw new SSLException("Failed local certs of session.");
@@ -715,14 +723,12 @@ final class SSLSessionImpl extends ExtendedSSLSession {
         this.pskIdentity = pskIdentity;
     }
 
-    BigInteger incrTicketNonceCounter() {
-        BigInteger result = ticketNonceCounter;
-        ticketNonceCounter = ticketNonceCounter.add(BigInteger.ONE);
-        return result;
+    byte[] incrTicketNonceCounter() {
+        return new byte[] {ticketNonceCounter++};
     }
 
     boolean isPSKable() {
-        return (ticketNonceCounter.compareTo(BigInteger.ZERO) > 0);
+        return (ticketNonceCounter > 0);
     }
 
     /**
@@ -779,6 +785,10 @@ final class SSLSessionImpl extends ExtendedSSLSession {
 
     byte[] getPskIdentity() {
         return pskIdentity;
+    }
+
+    public boolean isPSK() {
+        return (pskIdentity != null && pskIdentity.length > 0);
     }
 
     void setPeerCertificates(X509Certificate[] peer) {
@@ -985,7 +995,7 @@ final class SSLSessionImpl extends ExtendedSSLSession {
     }
 
     /**
-     * Returns the hashcode for this session
+     * {@return the hashcode for this session}
      */
     @Override
     public int hashCode() {
@@ -1002,13 +1012,9 @@ final class SSLSessionImpl extends ExtendedSSLSession {
             return true;
         }
 
-        if (obj instanceof SSLSessionImpl) {
-            SSLSessionImpl sess = (SSLSessionImpl) obj;
-            return (sessionId != null) && (sessionId.equals(
-                        sess.getSessionId()));
-        }
-
-        return false;
+        return obj instanceof SSLSessionImpl other
+                && sessionId != null
+                && sessionId.equals(other.getSessionId());
     }
 
 
@@ -1234,7 +1240,6 @@ final class SSLSessionImpl extends ExtendedSSLSession {
      * sessions can be shared across different protection domains.
      */
     private final ConcurrentHashMap<SecureKey, Object> boundValues;
-    boolean updateNST;
 
     /**
      * Assigns a session value.  Session change events are given if
@@ -1312,9 +1317,7 @@ final class SSLSessionImpl extends ExtendedSSLSession {
     public String[] getValueNames() {
         ArrayList<Object> v = new ArrayList<>();
         Object securityCtx = SecureKey.getCurrentSecurityContext();
-        for (Enumeration<SecureKey> e = boundValues.keys();
-                e.hasMoreElements(); ) {
-            SecureKey key = e.nextElement();
+        for (SecureKey key : boundValues.keySet()) {
             if (securityCtx.equals(key.getSecurityContext())) {
                 v.add(key.getAppKey());
             }
@@ -1371,8 +1374,7 @@ final class SSLSessionImpl extends ExtendedSSLSession {
             }
 
             if (maximumPacketSize > 0) {
-                return (maximumPacketSize > packetSize) ?
-                        maximumPacketSize : packetSize;
+                return Math.max(maximumPacketSize, packetSize);
             }
 
             if (packetSize != 0) {
@@ -1408,8 +1410,7 @@ final class SSLSessionImpl extends ExtendedSSLSession {
             }
 
             if (negotiatedMaxFragLen > 0) {
-                return (negotiatedMaxFragLen > fragmentSize) ?
-                        negotiatedMaxFragLen : fragmentSize;
+                return Math.max(negotiatedMaxFragLen, fragmentSize);
             }
 
             if (fragmentSize != 0) {

@@ -146,7 +146,7 @@ public final class LWCToolkit extends LWToolkit {
     static {
         System.err.flush();
 
-        @SuppressWarnings("removal")
+        @SuppressWarnings({"removal", "restricted"})
         ResourceBundle platformResources = java.security.AccessController.doPrivileged(
                 new java.security.PrivilegedAction<ResourceBundle>() {
             @Override
@@ -999,8 +999,10 @@ public final class LWCToolkit extends LWToolkit {
     private static URL getScaledImageURL(URL url) {
         try {
             String scaledImagePath = getScaledImageName(url.getPath());
-            return scaledImagePath == null ? null : new URL(url.getProtocol(),
+            @SuppressWarnings("deprecation")
+            var result = scaledImagePath == null ? null : new URL(url.getProtocol(),
                     url.getHost(), url.getPort(), scaledImagePath);
+            return result;
         } catch (MalformedURLException e) {
             return null;
         }

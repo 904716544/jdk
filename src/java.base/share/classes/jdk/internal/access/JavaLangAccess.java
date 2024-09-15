@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,11 @@
 
 package jdk.internal.access;
 
+import java.io.InputStream;
+import java.io.PrintStream;
 import java.lang.annotation.Annotation;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.lang.module.ModuleDescriptor;
@@ -39,11 +43,12 @@ import java.security.ProtectionDomain;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Stream;
 
+import jdk.internal.loader.NativeLibraries;
 import jdk.internal.misc.CarrierThreadLocal;
 import jdk.internal.module.ServicesCatalog;
 import jdk.internal.reflect.ConstantPool;
@@ -62,6 +67,11 @@ public interface JavaLangAccess {
      * and parameter types.
      */
     List<Method> getDeclaredPublicMethods(Class<?> klass, String name, Class<?>... parameterTypes);
+
+    /**
+     * Return most specific method that matches name and parameterTypes.
+     */
+    Method findMethod(Class<?> klass, boolean publicOnly, String name, Class<?>... parameterTypes);
 
     /**
      * Return the constant pool for a class.
@@ -175,11 +185,6 @@ public interface JavaLangAccess {
     Package definePackage(ClassLoader cl, String name, Module module);
 
     /**
-     * Invokes Long.fastUUID
-     */
-    String fastUUID(long lsb, long msb);
-
-    /**
      * Record the non-exported packages of the modules in the given layer
      */
     void addNonExportedPackages(ModuleLayer layer);
@@ -268,14 +273,25 @@ public interface JavaLangAccess {
     Module addEnableNativeAccess(Module m);
 
     /**
-     * Updates all unnamed modules to allow access to restricted methods.
+     * Updates module named {@code name} in layer {@code layer} to allow access to restricted methods.
+     * Returns true iff the given module exists in the given layer.
      */
-    void addEnableNativeAccessAllUnnamed();
+    boolean addEnableNativeAccess(ModuleLayer layer, String name);
 
     /**
-     * Returns true if module m can access restricted methods.
+     * Updates all unnamed modules to allow access to restricted methods.
      */
-    boolean isEnableNativeAccess(Module m);
+    void addEnableNativeAccessToAllUnnamed();
+
+    /**
+     * Ensure that the given module has native access. If not, warn or throw exception depending on the configuration.
+     * @param m the module in which native access occurred
+     * @param owner the owner of the restricted method being called (or the JNI method being bound)
+     * @param methodName the name of the restricted method being called (or the JNI method being bound)
+     * @param currentClass the class calling the restricted method (for JNI, this is the same as {@code owner})
+     * @param jni {@code true}, if this event is related to a JNI method being bound
+     */
+    void ensureNativeAccess(Module m, Class<?> owner, String methodName, Class<?> currentClass, boolean jni);
 
     /**
      * Returns the ServicesCatalog for the given Layer.
@@ -299,6 +315,16 @@ public interface JavaLangAccess {
      * given class loader.
      */
     Stream<ModuleLayer> layers(ClassLoader loader);
+
+    /**
+     * Count the number of leading positive bytes in the range.
+     */
+    int countPositives(byte[] ba, int off, int len);
+
+    /**
+     * Count the number of leading non-zero ascii chars in the String.
+     */
+    int countNonZeroAscii(String s);
 
     /**
      * Constructs a new {@code String} by decoding the specified subarray of
@@ -341,6 +367,25 @@ public interface JavaLangAccess {
     String newStringUTF8NoRepl(byte[] bytes, int off, int len);
 
     /**
+     * Get the char at index in a byte[] in internal UTF-16 representation,
+     * with no bounds checks.
+     *
+     * @param bytes the UTF-16 encoded bytes
+     * @param index of the char to retrieve, 0 <= index < (bytes.length >> 1)
+     * @return the char value
+     */
+    char getUTF16Char(byte[] bytes, int index);
+
+    /**
+     * Put the char at index in a byte[] in internal UTF-16 representation,
+     * with no bounds checks.
+     *
+     * @param bytes the UTF-16 encoded bytes
+     * @param index of the char to retrieve, 0 <= index < (bytes.length >> 1)
+     */
+    void putCharUTF16(byte[] bytes, int index, int ch);
+
+    /**
      * Encode the given string into a sequence of bytes using utf8.
      *
      * @param s the string to encode
@@ -361,6 +406,17 @@ public interface JavaLangAccess {
      * @return the number of bytes successfully decoded, at most len
      */
     int decodeASCII(byte[] src, int srcOff, char[] dst, int dstOff, int len);
+
+    /**
+     * Returns the initial `System.in` to determine if it is replaced
+     * with `System.setIn(newIn)` method
+     */
+    InputStream initialSystemIn();
+
+    /**
+     * Returns the initial value of System.err.
+     */
+    PrintStream initialSystemErr();
 
     /**
      * Encodes ASCII codepoints as possible from the source array into
@@ -398,9 +454,31 @@ public interface JavaLangAccess {
     long stringConcatMix(long lengthCoder, String constant);
 
     /**
+     * Mix value length and coder into current length and coder.
+     */
+    long stringConcatMix(long lengthCoder, char value);
+
+    Object stringConcat1(String[] constants);
+
+    /**
+     * Get the string initial coder, When COMPACT_STRINGS is on, it returns 0, and when it is off, it returns 1.
+     */
+    byte stringInitCoder();
+
+    /**
+     * Get the Coder of String, which is used by StringConcatFactory to calculate the initCoder of constants
+     */
+    byte stringCoder(String str);
+
+    /**
      * Join strings
      */
     String join(String prefix, String suffix, String delimiter, String[] elements, int size);
+
+    /**
+     * Concatenation of prefix and suffix characters to a String for early bootstrap
+     */
+    String concat(String prefix, Object value, String suffix);
 
     /*
      * Get the class data associated with the given class.
@@ -409,7 +487,15 @@ public interface JavaLangAccess {
      */
     Object classData(Class<?> c);
 
-    long findNative(ClassLoader loader, String entry);
+    int getCharsLatin1(long i, int index, byte[] buf);
+
+    int getCharsUTF16(long i, int index, byte[] buf);
+
+    /**
+     * Returns the {@link NativeLibraries} object associated with the provided class loader.
+     * This is used by {@link SymbolLookup#loaderLookup()}.
+     */
+    NativeLibraries nativeLibrariesFor(ClassLoader loader);
 
     /**
      * Direct access to Shutdown.exit to avoid security manager checks
@@ -449,11 +535,6 @@ public interface JavaLangAccess {
     Thread currentCarrierThread();
 
     /**
-     * Executes the given value returning task on the current carrier thread.
-     */
-    <V> V executeOnCarrierThread(Callable<V> task) throws Exception;
-
-    /**
      * Returns the value of the current carrier thread's copy of a thread-local.
      */
     <T> T getCarrierThreadLocal(CarrierThreadLocal<T> local);
@@ -475,24 +556,19 @@ public interface JavaLangAccess {
     boolean isCarrierThreadLocalPresent(CarrierThreadLocal<?> local);
 
     /**
-     * Returns the current thread's extent locals cache
+     * Returns the current thread's scoped values cache
      */
-    Object[] extentLocalCache();
+    Object[] scopedValueCache();
 
     /**
-     * Sets the current thread's extent locals cache
+     * Sets the current thread's scoped values cache
      */
-    void setExtentLocalCache(Object[] cache);
+    void setScopedValueCache(Object[] cache);
 
     /**
-     * Return the current thread's extent local bindings.
+     * Return the current thread's scoped value bindings.
      */
-    Object extentLocalBindings();
-
-    /**
-     * Set the current thread's extent local bindings.
-     */
-    void setExtentLocalBindings(Object bindings);
+    Object scopedValueBindings();
 
     /**
      * Returns the innermost mounted continuation
@@ -532,9 +608,35 @@ public interface JavaLangAccess {
     void unparkVirtualThread(Thread thread);
 
     /**
+     * Returns the virtual thread default scheduler.
+     */
+    Executor virtualThreadDefaultScheduler();
+
+    /**
      * Creates a new StackWalker
      */
     StackWalker newStackWalkerInstance(Set<StackWalker.Option> options,
                                        ContinuationScope contScope,
                                        Continuation continuation);
+    /**
+     * Returns '<loader-name>' @<id> if classloader has a name
+     * explicitly set otherwise <qualified-class-name> @<id>
+     */
+    String getLoaderNameID(ClassLoader loader);
+
+    /**
+     * Copy the string bytes to an existing segment, avoiding intermediate copies.
+     */
+    void copyToSegmentRaw(String string, MemorySegment segment, long offset);
+
+    /**
+     * Are the string bytes compatible with the given charset?
+     */
+    boolean bytesCompatible(String string, Charset charset);
+
+    /**
+     * Is a security manager already set or allowed to be set
+     * (using -Djava.security.manager=allow)?
+     */
+    boolean allowSecurityManager();
 }

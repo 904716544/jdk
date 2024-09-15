@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,13 +30,17 @@
 #include "runtime/continuation.hpp"
 #include "utilities/sizes.hpp"
 
-class CompiledMethod;
+#include CPU_HEADER(continuationEntry)
+
 class JavaThread;
+class nmethod;
 class OopMap;
 class RegisterMap;
 
 // Metadata stored in the continuation entry frame
 class ContinuationEntry {
+  friend class JVMCIVMStructs;
+  ContinuationEntryPD _pd;
 #ifdef ASSERT
 private:
   static const int COOKIE_VALUE = 0x1234;
@@ -53,12 +57,12 @@ public:
 
 public:
   static int _return_pc_offset; // friend gen_continuation_enter
-  static void set_enter_code(CompiledMethod* cm, int interpreted_entry_offset);
+  static void set_enter_code(nmethod* nm, int interpreted_entry_offset);
   static bool is_interpreted_call(address call_address);
 
 private:
   static address _return_pc;
-  static CompiledMethod* _enter_special;
+  static nmethod* _enter_special;
   static int _interpreted_entry_offset;
 
 private:
@@ -66,6 +70,8 @@ private:
   oopDesc* _cont;
   oopDesc* _chunk;
   int _flags;
+  // Size in words of the stack arguments of the bottom frame on stack if compiled 0 otherwise.
+  // The caller (if there is one) is the still frozen top frame in the StackChunk.
   int _argsize;
   intptr_t* _parent_cont_fastpath;
 #ifdef _LP64
@@ -73,7 +79,7 @@ private:
 #else
   int32_t   _parent_held_monitor_count;
 #endif
-  uint _pin_count;
+  uint32_t _pin_count;
 
 public:
   static ByteSize parent_offset()   { return byte_offset_of(ContinuationEntry, _parent); }
@@ -84,8 +90,6 @@ public:
   static ByteSize pin_count_offset(){ return byte_offset_of(ContinuationEntry, _pin_count); }
   static ByteSize parent_cont_fastpath_offset()      { return byte_offset_of(ContinuationEntry, _parent_cont_fastpath); }
   static ByteSize parent_held_monitor_count_offset() { return byte_offset_of(ContinuationEntry, _parent_held_monitor_count); }
-
-  static void setup_oopmap(OopMap* map);
 
 public:
   static size_t size() { return align_up((int)sizeof(ContinuationEntry), 2*wordSize); }
@@ -100,14 +104,12 @@ public:
   static address compiled_entry();
   static address interpreted_entry();
 
-  static CompiledMethod* enter_special() { return _enter_special; }
-
   int argsize() const { return _argsize; }
   void set_argsize(int value) { _argsize = value; }
 
   bool is_pinned() { return _pin_count > 0; }
   bool pin() {
-    if (_pin_count == UINT_MAX) return false;
+    if (_pin_count == UINT32_MAX) return false;
     _pin_count++;
     return true;
   }
@@ -126,9 +128,12 @@ public:
   void flush_stack_processing(JavaThread* thread) const;
 
   inline intptr_t* bottom_sender_sp() const;
-  inline oop cont_oop() const;
-  inline oop scope() const;
-  inline static oop cont_oop_or_null(const ContinuationEntry* ce);
+  inline oop cont_oop(const JavaThread* thread) const;
+  inline oop scope(const JavaThread* thread) const;
+  inline static oop cont_oop_or_null(const ContinuationEntry* ce, const JavaThread* thread);
+
+  oop* cont_addr() { return (oop*)&_cont; }
+  oop* chunk_addr() { return (oop*)&_chunk; }
 
   bool is_virtual_thread() const { return _flags != 0; }
 

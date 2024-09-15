@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2020, 2022, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2017, 2022 SAP SE. All rights reserved.
+ * Copyright (c) 2020, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2024 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,8 +29,9 @@
 // C2_MacroAssembler contains high-level macros for C2
 
  public:
-  void emit_entry_barrier_stub(C2EntryBarrierStub* stub) {}
-  static int entry_barrier_stub_size() { return 0; }
+  // Code used by cmpFastLockLightweight and cmpFastUnlockLightweight mach instructions in s390.ad file.
+  void fast_lock_lightweight(Register obj, Register box, Register temp1, Register temp2);
+  void fast_unlock_lightweight(Register obj, Register box, Register temp1, Register temp2);
 
   //-------------------------------------------
   // Special String Intrinsics Implementation.

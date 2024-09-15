@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -167,6 +167,7 @@ public class PrintStream extends FilterOutputStream
      * @see java.io.PrintWriter#PrintWriter(java.io.OutputStream, boolean)
      * @see Charset#defaultCharset()
      */
+    @SuppressWarnings("this-escape")
     public PrintStream(OutputStream out, boolean autoFlush) {
         this(autoFlush, requireNonNull(out, "Null output stream"));
     }
@@ -212,6 +213,7 @@ public class PrintStream extends FilterOutputStream
      *
      * @since  10
      */
+    @SuppressWarnings("this-escape")
     public PrintStream(OutputStream out, boolean autoFlush, Charset charset) {
         super(out);
         this.autoFlush = autoFlush;
@@ -255,6 +257,7 @@ public class PrintStream extends FilterOutputStream
      *
      * @since  1.5
      */
+    @SuppressWarnings("this-escape")
     public PrintStream(String fileName) throws FileNotFoundException {
         this(false, new FileOutputStream(fileName));
     }
@@ -356,6 +359,7 @@ public class PrintStream extends FilterOutputStream
      *
      * @since  1.5
      */
+    @SuppressWarnings("this-escape")
     public PrintStream(File file) throws FileNotFoundException {
         this(false, new FileOutputStream(file));
     }
@@ -612,6 +616,7 @@ public class PrintStream extends FilterOutputStream
      * @param  buf   A byte array
      * @param  off   Offset from which to start taking bytes
      * @param  len   Number of bytes to write
+     * @throws IndexOutOfBoundsException {@inheritDoc}
      */
     @Override
     public void write(byte[] buf, int off, int len) {
@@ -674,8 +679,6 @@ public class PrintStream extends FilterOutputStream
      *
      * @see #writeBytes(byte[])
      * @see #write(byte[],int,int)
-     *
-     * @since 14
      */
     @Override
     public void write(byte[] buf) throws IOException {
@@ -1205,9 +1208,9 @@ public class PrintStream extends FilterOutputStream
      * {@code out.printf(format, args)} behaves
      * in exactly the same way as the invocation
      *
-     * <pre>{@code
+     * {@snippet lang=java :
      *     out.format(format, args)
-     * }</pre>
+     * }
      *
      * @param  format
      *         A format string as described in <a
@@ -1252,9 +1255,9 @@ public class PrintStream extends FilterOutputStream
      * {@code out.printf(l, format, args)} behaves
      * in exactly the same way as the invocation
      *
-     * <pre>{@code
+     * {@snippet lang=java :
      *     out.format(l, format, args)
-     * }</pre>
+     * }
      *
      * @param  l
      *         The {@linkplain java.util.Locale locale} to apply during
@@ -1439,15 +1442,16 @@ public class PrintStream extends FilterOutputStream
      * Appends the specified character sequence to this output stream.
      *
      * <p> An invocation of this method of the form {@code out.append(csq)}
-     * behaves in exactly the same way as the invocation
+     * when {@code csq} is not {@code null}, behaves in exactly the same way
+     * as the invocation
      *
-     * <pre>{@code
+     * {@snippet lang=java :
      *     out.print(csq.toString())
-     * }</pre>
+     * }
      *
      * <p> Depending on the specification of {@code toString} for the
      * character sequence {@code csq}, the entire sequence may not be
-     * appended.  For instance, invoking then {@code toString} method of a
+     * appended.  For instance, invoking the {@code toString} method of a
      * character buffer will return a subsequence whose content depends upon
      * the buffer's position and limit.
      *
@@ -1474,9 +1478,9 @@ public class PrintStream extends FilterOutputStream
      * {@code csq} is not {@code null}, behaves in
      * exactly the same way as the invocation
      *
-     * <pre>{@code
+     * {@snippet lang=java :
      *     out.print(csq.subSequence(start, end).toString())
-     * }</pre>
+     * }
      *
      * @param  csq
      *         The character sequence from which a subsequence will be
@@ -1511,9 +1515,9 @@ public class PrintStream extends FilterOutputStream
      * <p> An invocation of this method of the form {@code out.append(c)}
      * behaves in exactly the same way as the invocation
      *
-     * <pre>{@code
+     * {@snippet lang=java :
      *     out.print(c)
-     * }</pre>
+     * }
      *
      * @param  c
      *         The 16-bit character to append

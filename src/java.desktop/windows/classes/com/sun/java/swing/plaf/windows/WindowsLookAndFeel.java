@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -93,6 +93,7 @@ import sun.font.FontUtilities;
 import sun.security.action.GetPropertyAction;
 import sun.swing.DefaultLayoutStyle;
 import sun.swing.ImageIconUIResource;
+import sun.swing.MnemonicHandler;
 import sun.swing.StringUIClientPropertyKey;
 import sun.swing.SwingAccessor;
 import sun.swing.SwingUtilities2;
@@ -196,6 +197,7 @@ public class WindowsLookAndFeel extends BasicLookAndFeel
         }
         KeyboardFocusManager.getCurrentKeyboardFocusManager().
             addKeyEventPostProcessor(WindowsRootPaneUI.altProcessor);
+        MnemonicHandler.setMnemonicHidden(true);
 
     }
 
@@ -326,7 +328,7 @@ public class WindowsLookAndFeel extends BasicLookAndFeel
         LazyValue dialogBold12 = t -> new FontUIResource(Font.DIALOG, Font.BOLD, 12);
 
         // *** Colors
-        // XXX - some of these doens't seem to be used
+        // XXX - some of these doesn't seem to be used
         ColorUIResource red = new ColorUIResource(Color.red);
         ColorUIResource black = new ColorUIResource(Color.black);
         ColorUIResource white = new ColorUIResource(Color.white);
@@ -628,7 +630,7 @@ public class WindowsLookAndFeel extends BasicLookAndFeel
             "Button.font", ControlFont,
             "Button.background", ControlBackgroundColor,
             // Button.foreground, Button.shadow, Button.darkShadow,
-            // Button.disabledForground, and Button.disabledShadow are only
+            // Button.disabledForeground, and Button.disabledShadow are only
             // used for Windows Classic. Windows XP will use colors
             // from the current visual style.
             "Button.foreground", ControlTextColor,
@@ -645,7 +647,7 @@ public class WindowsLookAndFeel extends BasicLookAndFeel
             "Button.dashedRectGapHeight", new XPValue(Integer.valueOf(6), Integer.valueOf(8)),
             "Button.textShiftOffset", new XPValue(Integer.valueOf(0),
                                                   Integer.valueOf(1)),
-            // W2K keyboard navigation hidding.
+            // W2K keyboard navigation hiding.
             "Button.showMnemonics", showMnemonics,
             "Button.focusInputMap",
                new UIDefaults.LazyInputMap(new Object[] {
@@ -1344,7 +1346,7 @@ public class WindowsLookAndFeel extends BasicLookAndFeel
                               "KP_DOWN", "selectNextRow",
                            "shift DOWN", "selectNextRowExtendSelection",
                         "shift KP_DOWN", "selectNextRowExtendSelection",
-                      "ctrl shift DOWN", "selectNextRowExtendSelection",
+                      "ctrl shift DOWN", "selectLastRowExtendSelection",
                    "ctrl shift KP_DOWN", "selectNextRowExtendSelection",
                             "ctrl DOWN", "selectNextRowChangeLead",
                          "ctrl KP_DOWN", "selectNextRowChangeLead",
@@ -1352,7 +1354,7 @@ public class WindowsLookAndFeel extends BasicLookAndFeel
                                 "KP_UP", "selectPreviousRow",
                              "shift UP", "selectPreviousRowExtendSelection",
                           "shift KP_UP", "selectPreviousRowExtendSelection",
-                        "ctrl shift UP", "selectPreviousRowExtendSelection",
+                        "ctrl shift UP", "selectFirstRowExtendSelection",
                      "ctrl shift KP_UP", "selectPreviousRowExtendSelection",
                               "ctrl UP", "selectPreviousRowChangeLead",
                            "ctrl KP_UP", "selectPreviousRowChangeLead",
@@ -1908,47 +1910,9 @@ public class WindowsLookAndFeel extends BasicLookAndFeel
         WindowsDesktopProperty.flushUnreferencedProperties();
     }
 
-
-    // Toggle flag for drawing the mnemonic state
-    private static boolean isMnemonicHidden = true;
-
     // Flag which indicates that the Win98/Win2k/WinME features
     // should be disabled.
     private static boolean isClassicWindows = false;
-
-    /**
-     * Sets the state of the hide mnemonic flag. This flag is used by the
-     * component UI delegates to determine if the mnemonic should be rendered.
-     * This method is a non operation if the underlying operating system
-     * does not support the mnemonic hiding feature.
-     *
-     * @param hide true if mnemonics should be hidden
-     * @since 1.4
-     */
-    public static void setMnemonicHidden(boolean hide) {
-        if (UIManager.getBoolean("Button.showMnemonics") == true) {
-            // Do not hide mnemonics if the UI defaults do not support this
-            isMnemonicHidden = false;
-        } else {
-            isMnemonicHidden = hide;
-        }
-    }
-
-    /**
-     * Gets the state of the hide mnemonic flag. This only has meaning
-     * if this feature is supported by the underlying OS.
-     *
-     * @return true if mnemonics are hidden, otherwise, false
-     * @see #setMnemonicHidden
-     * @since 1.4
-     */
-    public static boolean isMnemonicHidden() {
-        if (UIManager.getBoolean("Button.showMnemonics") == true) {
-            // Do not hide mnemonics if the UI defaults do not support this
-            isMnemonicHidden = false;
-        }
-        return isMnemonicHidden;
-    }
 
     /**
      * Gets the state of the flag which indicates if the old Windows
@@ -2431,7 +2395,7 @@ public class WindowsLookAndFeel extends BasicLookAndFeel
         protected void updateUI() {
             super.updateUI();
 
-            // Make sure property change listener is readded each time
+            // Make sure property change listener is re-added each time
             getValueFromDesktop();
         }
     }

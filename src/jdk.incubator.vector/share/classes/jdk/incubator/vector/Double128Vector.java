@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -512,7 +512,7 @@ final class Double128Vector extends DoubleVector {
                      this, i,
                      (vec, ix) -> {
                      double[] vecarr = vec.vec();
-                     return (long)Double.doubleToLongBits(vecarr[ix]);
+                     return (long)Double.doubleToRawLongBits(vecarr[ix]);
                      });
     }
 
@@ -529,7 +529,7 @@ final class Double128Vector extends DoubleVector {
     public Double128Vector withLaneHelper(int i, double e) {
         return VectorSupport.insert(
                                 VCLASS, ETYPE, VLENGTH,
-                                this, i, (long)Double.doubleToLongBits(e),
+                                this, i, (long)Double.doubleToRawLongBits(e),
                                 (v, ix, bits) -> {
                                     double[] res = v.vec().clone();
                                     res[ix] = Double.longBitsToDouble((long)bits);
@@ -640,10 +640,11 @@ final class Double128Vector extends DoubleVector {
 
         @Override
         @ForceInline
-        public Double128Mask eq(VectorMask<Double> mask) {
-            Objects.requireNonNull(mask);
-            Double128Mask m = (Double128Mask)mask;
-            return xor(m.not());
+        /*package-private*/
+        Double128Mask indexPartiallyInUpperRange(long offset, long limit) {
+            return (Double128Mask) VectorSupport.indexPartiallyInUpperRange(
+                Double128Mask.class, double.class, VLENGTH, offset, limit,
+                (o, l) -> (Double128Mask) TRUE_MASK.indexPartiallyInRange(o, l));
         }
 
         // Unary operations
@@ -685,9 +686,9 @@ final class Double128Vector extends DoubleVector {
                                           (m1, m2, vm) -> m1.bOp(m2, (i, a, b) -> a | b));
         }
 
+        @Override
         @ForceInline
-        /* package-private */
-        Double128Mask xor(VectorMask<Double> mask) {
+        public Double128Mask xor(VectorMask<Double> mask) {
             Objects.requireNonNull(mask);
             Double128Mask m = (Double128Mask)mask;
             return VectorSupport.binaryOp(VECTOR_OP_XOR, Double128Mask.class, null, long.class, VLENGTH,
@@ -726,6 +727,16 @@ final class Double128Vector extends DoubleVector {
             }
             return VectorSupport.maskReductionCoerced(VECTOR_OP_MASK_TOLONG, Double128Mask.class, long.class, VLENGTH, this,
                                                       (m) -> toLongHelper(m.getBits()));
+        }
+
+        // laneIsSet
+
+        @Override
+        @ForceInline
+        public boolean laneIsSet(int i) {
+            Objects.checkIndex(i, length());
+            return VectorSupport.extract(Double128Mask.class, double.class, VLENGTH,
+                                         this, i, (m, idx) -> (m.getBits()[idx] ? 1L : 0L)) == 1L;
         }
 
         // Reductions

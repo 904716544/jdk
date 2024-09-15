@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2024, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2021, Azul Systems, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -621,7 +621,7 @@ jlongArray getThreadIntegerRegisterSetFromCore(JNIEnv *env, jobject this_obj, lo
 #error UNSUPPORTED_ARCH
 #endif
 
-  (*env)->ReleaseLongArrayElements(env, array, regs, JNI_COMMIT);
+  (*env)->ReleaseLongArrayElements(env, array, regs, 0);
   return array;
 }
 
@@ -869,19 +869,25 @@ kern_return_t catch_mach_exception_raise(
   }
 
   // This message should denote a Unix soft signal, with
-  // 1. the exception type = EXC_SOFTWARE
-  // 2. codes[0] (which is the code) = EXC_SOFT_SIGNAL
-  // 3. codes[1] (which is the sub-code) = SIGSTOP
-  if (!(exception_type == EXC_SOFTWARE &&
-        codes[0] == EXC_SOFT_SIGNAL    &&
-        codes[num_codes -1] == SIGSTOP)) {
+  // 1. the exception type = EXC_SOFTWARE (5)
+  // 2. codes[0] (which is the code) = EXC_SOFT_SIGNAL (0x10003 / 65539)
+  // 3. codes[1] (which is the sub-code) = SIGSTOP (17)
+  if (exception_type != EXC_SOFTWARE || codes[0] != EXC_SOFT_SIGNAL) {
     print_error("catch_mach_exception_raise: Message doesn't denote a Unix "
                 "soft signal. exception_type = %d, codes[0] = %d, "
                 "codes[num_codes -1] = 0x%llx, num_codes = %d\n",
                 exception_type, codes[0], codes[num_codes - 1], num_codes);
     return GOT_UNKNOWN_EXC;
   }
-  return KERN_SUCCESS;
+  int sig = codes[num_codes -1];
+  if (sig == SIGSTOP) {
+    return KERN_SUCCESS;
+  } else {
+    // Sometimes we get SIGTRAP(4) or SIGILL(5) instead of SIGSTOP (17) on aarch64.
+    // We currently can't deal with them. See JDK-8288429.
+    print_error("catch_mach_exception_raise: signal is not SIGSTOP (%d)\n", sig);
+    return GOT_UNKNOWN_EXC;
+  }
 }
 
 kern_return_t catch_mach_exception_raise_state(
@@ -1140,7 +1146,7 @@ Java_sun_jvm_hotspot_debugger_bsd_BsdDebuggerLocal_attach0__Ljava_lang_String_2L
   if ( (ph = Pgrab_core(execName_cstr, coreName_cstr)) == NULL) {
     (*env)->ReleaseStringUTFChars(env, execName, execName_cstr);
     (*env)->ReleaseStringUTFChars(env, coreName, coreName_cstr);
-    THROW_NEW_DEBUGGER_EXCEPTION("Can't attach to the core file");
+    THROW_NEW_DEBUGGER_EXCEPTION("Can't attach to the core file. For more information, export LIBSAPROC_DEBUG=1 and try again.");
   }
   (*env)->SetLongField(env, this_obj, p_ps_prochandle_ID, (jlong)(intptr_t)ph);
   (*env)->ReleaseStringUTFChars(env, execName, execName_cstr);

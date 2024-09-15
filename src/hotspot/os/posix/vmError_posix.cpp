@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2024, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2018, 2020 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -24,6 +24,7 @@
  */
 
 #include "precompiled.hpp"
+#include "cds/cdsConfig.hpp"
 #include "cds/metaspaceShared.hpp"
 #include "os_posix.hpp"
 #include "runtime/javaThread.hpp"
@@ -64,12 +65,12 @@ void VMError::interrupt_reporting_thread() {
   ::pthread_kill(reporter_thread_id, SIGILL);
 }
 
-static void crash_handler(int sig, siginfo_t* info, void* ucVoid) {
+static void crash_handler(int sig, siginfo_t* info, void* context) {
 
   PosixSignals::unblock_error_signals();
 
-  ucontext_t* const uc = (ucontext_t*) ucVoid;
-  address pc = (uc != NULL) ? os::Posix::ucontext_get_pc(uc) : NULL;
+  ucontext_t* const uc = (ucontext_t*) context;
+  address pc = (uc != nullptr) ? os::Posix::ucontext_get_pc(uc) : nullptr;
 
   // Correct pc for SIGILL, SIGFPE (see JDK-8176872)
   if (sig == SIGILL || sig == SIGFPE) {
@@ -83,14 +84,14 @@ static void crash_handler(int sig, siginfo_t* info, void* ucVoid) {
 
   // Needed because asserts may happen in error handling too.
 #ifdef CAN_SHOW_REGISTERS_ON_ASSERT
-  if ((sig == SIGSEGV || sig == SIGBUS) && info != NULL && info->si_addr == g_assert_poison) {
-    if (handle_assert_poison_fault(ucVoid, info->si_addr)) {
+  if ((sig == SIGSEGV || sig == SIGBUS) && info != nullptr && info->si_addr == g_assert_poison) {
+    if (handle_assert_poison_fault(context, info->si_addr)) {
       return;
     }
   }
 #endif // CAN_SHOW_REGISTERS_ON_ASSERT
 
-  VMError::report_and_die(NULL, sig, pc, info, ucVoid);
+  VMError::report_and_die(nullptr, sig, pc, info, context);
 }
 
 const void* VMError::crash_handler_address = CAST_FROM_FN_PTR(void *, crash_handler);
@@ -101,7 +102,10 @@ void VMError::install_secondary_signal_handler() {
     0 // end
   };
   for (int i = 0; signals_to_handle[i] != 0; i++) {
-    os::signal(signals_to_handle[i], CAST_FROM_FN_PTR(void *, crash_handler));
+    struct sigaction sigAct, oldSigAct;
+    PosixSignals::install_sigaction_signal_handler(&sigAct, &oldSigAct,
+                                                   signals_to_handle[i], crash_handler);
+    // No point checking the return code during error reporting.
   }
 }
 
@@ -109,11 +113,11 @@ void VMError::install_secondary_signal_handler() {
 // and the offending address points into CDS archive.
 void VMError::check_failing_cds_access(outputStream* st, const void* siginfo) {
 #if INCLUDE_CDS
-  if (siginfo && UseSharedSpaces) {
+  if (siginfo && CDSConfig::is_using_archive()) {
     const siginfo_t* const si = (siginfo_t*)siginfo;
     if (si->si_signo == SIGBUS || si->si_signo == SIGSEGV) {
       const void* const fault_addr = si->si_addr;
-      if (fault_addr != NULL) {
+      if (fault_addr != nullptr) {
         if (MetaspaceShared::is_in_shared_metaspace(fault_addr)) {
           st->print("Error accessing class data sharing archive. "
             "Mapped file inaccessible during execution, possible disk/network problem.");

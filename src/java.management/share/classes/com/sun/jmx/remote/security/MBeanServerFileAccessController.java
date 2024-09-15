@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,6 +42,7 @@ import java.util.regex.Pattern;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import javax.security.auth.Subject;
+import jdk.internal.access.SharedSecrets;
 
 /**
  * <p>An object of this class implements the MBeanServerAccessController
@@ -300,16 +301,19 @@ public class MBeanServerFileAccessController
         }
     }
 
+    @SuppressWarnings("removal")
     private synchronized void checkAccess(AccessType requiredAccess, String arg) {
-        @SuppressWarnings("removal")
-        final AccessControlContext acc = AccessController.getContext();
-        @SuppressWarnings("removal")
-        final Subject s =
-            AccessController.doPrivileged(new PrivilegedAction<Subject>() {
-                    public Subject run() {
-                        return Subject.getSubject(acc);
-                    }
+        Subject s = null;
+        if (!SharedSecrets.getJavaLangAccess().allowSecurityManager()) {
+            s = Subject.current();
+        } else {
+            final AccessControlContext acc = AccessController.getContext();
+            s = AccessController.doPrivileged(new PrivilegedAction<>() {
+                        public Subject run() {
+                            return Subject.getSubject(acc);
+                        }
                 });
+        }
         if (s == null) return; /* security has not been enabled */
         final Set<Principal> principals = s.getPrincipals();
         String newPropertyValue = null;
@@ -388,7 +392,7 @@ public class MBeanServerFileAccessController
     }
 
     private void parseProperties(Properties props) {
-        this.accessMap = new HashMap<String, Access>();
+        this.accessMap = new HashMap<>();
         for (Map.Entry<Object, Object> entry : props.entrySet()) {
             String identity = (String) entry.getKey();
             String accessString = (String) entry.getValue();
@@ -447,7 +451,7 @@ public class MBeanServerFileAccessController
         }
 
         private Access parseReadWrite() {
-            List<String> createClasses = new ArrayList<String>();
+            List<String> createClasses = new ArrayList<>();
             boolean unregister = false;
             while (true) {
                 skipSpace();

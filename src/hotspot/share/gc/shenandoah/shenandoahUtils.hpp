@@ -64,11 +64,12 @@ private:
 
   ShenandoahPhaseTimings* const         _timings;
   const ShenandoahPhaseTimings::Phase   _phase;
+  const bool                            _should_aggregate;
   ShenandoahPhaseTimings::Phase         _parent_phase;
   double _start;
 
 public:
-  ShenandoahTimingsTracker(ShenandoahPhaseTimings::Phase phase);
+  ShenandoahTimingsTracker(ShenandoahPhaseTimings::Phase phase, bool should_aggregate = false);
   ~ShenandoahTimingsTracker();
 
   static ShenandoahPhaseTimings::Phase current_phase() { return _current_phase; }
@@ -132,11 +133,11 @@ private:
   ShenandoahHeap* const _heap;
   const GCIdMark                _gc_id_mark;
   const SvcGCMarker             _svc_gc_mark;
-  const IsGCActiveMark          _is_gc_active_mark;
+  const IsSTWGCActiveMark       _is_gc_active_mark;
   TraceMemoryManagerStats       _trace_pause;
 
 public:
-  ShenandoahGCPauseMark(uint gc_id, SvcGCMarker::reason_type type);
+  ShenandoahGCPauseMark(uint gc_id, const char* notification_action, SvcGCMarker::reason_type type);
 };
 
 class ShenandoahSafepoint : public AllStatic {
@@ -159,7 +160,7 @@ public:
 
     // Otherwise check we are at proper operation type
     VM_Operation* vm_op = VMThread::vm_operation();
-    if (vm_op == NULL) return false;
+    if (vm_op == nullptr) return false;
 
     VM_Operation::VMOp_Type type = vm_op->type();
     return type == VM_Operation::VMOp_ShenandoahInitMark ||
